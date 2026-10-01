@@ -29,10 +29,38 @@ const execAsync = promisify(exec);
 
 // ==================== REPOSITORY ACTIVITIES ====================
 
+/**
+ * Validates a GitHub repository URL to prevent command injection
+ * @param url - The repository URL to validate
+ * @returns true if valid, throws ApplicationFailure if invalid
+ */
+function validateRepoUrl(url: string): void {
+  // Only allow GitHub URLs with specific patterns
+  const githubPattern = /^https:\/\/github\.com\/[a-zA-Z0-9_-]+\/[a-zA-Z0-9_.-]+(\.git)?$/;
+
+  if (!githubPattern.test(url)) {
+    throw ApplicationFailure.create({
+      message: 'Invalid repository URL. Only GitHub URLs in format https://github.com/owner/repo are allowed',
+      type: 'InvalidRepoError',
+    });
+  }
+
+  // Additional security checks
+  if (url.includes('..') || url.includes(';') || url.includes('|') || url.includes('&')) {
+    throw ApplicationFailure.create({
+      message: 'Invalid repository URL: contains forbidden characters',
+      type: 'InvalidRepoError',
+    });
+  }
+}
+
 export async function cloneRepository(
   repoUrl: string,
   workflowId: string
 ): Promise<string> {
+  // Security: Validate URL before processing
+  validateRepoUrl(repoUrl);
+
   const baseDir = `/tmp/audit-${workflowId}`;
   const repoPath = path.join(baseDir, 'repo');
 
@@ -42,8 +70,22 @@ export async function cloneRepository(
       mkdirSync(baseDir, { recursive: true });
     }
 
-    // Clone repository
-    await execAsync(`git clone --depth 1 ${repoUrl} ${repoPath}`);
+    // Security: Use spawn with array args instead of exec with string interpolation
+    const { spawn } = require('child_process');
+    const gitProcess = spawn('git', ['clone', '--depth', '1', repoUrl, repoPath], {
+      stdio: 'inherit',
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      gitProcess.on('close', (code: number) => {
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(new Error(`git clone exited with code ${code}`));
+        }
+      });
+      gitProcess.on('error', reject);
+    });
 
     console.log(`Cloned repository to ${repoPath}`);
 
