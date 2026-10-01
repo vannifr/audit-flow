@@ -9,7 +9,7 @@ async function run() {
     taskQueue: 'audit',
     activities,
     workflowsPath: require.resolve('./workflows'),
-    maxConcurrentActivityExecutions: 4,
+    maxConcurrentActivityTaskExecutions: 4,
     maxConcurrentWorkflowTaskExecutions: 10,
   });
 

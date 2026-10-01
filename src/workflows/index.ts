@@ -37,10 +37,10 @@ const {
   generateReport,
   cleanup,
 } = proxyActivities<typeof activities>({
-  startToClose: { timeoutMs: 3600000 }, // 1 hour
+  startToCloseTimeout: '1 hour',
   retry: {
-    initialIntervalMs: 10000,
-    maximumIntervalMs: 300000,
+    initialInterval: '10 seconds',
+    maximumInterval: '5 minutes',
     maximumAttempts: 3,
     nonRetryableErrorTypes: ['InvalidRepoError', 'ValidationError'],
   },

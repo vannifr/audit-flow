@@ -1,9 +1,7 @@
 // Application Audit Activities
 
 import {
-  ActivityExecutionContext,
-  context,
-  ActivityFailure,
+  Context,
   ApplicationFailure,
 } from '@temporalio/activity';
 import { exec } from 'child_process';
@@ -47,7 +45,7 @@ export async function cloneRepository(
     // Clone repository
     await execAsync(`git clone --depth 1 ${repoUrl} ${repoPath}`);
 
-    context.logger.info(`Cloned repository to ${repoPath}`);
+    console.log(`Cloned repository to ${repoPath}`);
 
     return repoPath;
   } catch (error) {
@@ -127,11 +125,11 @@ export async function detectTechStack(repoPath: string): Promise<TechStack> {
     // Check for PII patterns
     await detectPII(repoPath, techStack);
 
-    context.logger.info(`Detected tech stack: ${JSON.stringify(techStack)}`);
+    console.log(`Detected tech stack: ${JSON.stringify(techStack)}`);
 
     return techStack;
   } catch (error) {
-    context.logger.error(`Error detecting tech stack: ${error}`);
+    console.error(`Error detecting tech stack: ${error}`);
     return techStack;
   }
 }
@@ -271,10 +269,10 @@ export async function runNpmAudit(
       }
     }
 
-    context.logger.info(`npm audit found ${findings.length} vulnerabilities`);
+    console.log(`npm audit found ${findings.length} vulnerabilities`);
   } catch (error) {
     // npm audit exits with non-zero if vulnerabilities found
-    context.logger.warn(`npm audit: ${error}`);
+    console.warn(`npm audit: ${error}`);
   }
 
   return findings;
@@ -331,9 +329,9 @@ export async function runGitleaks(
       }
     }
 
-    context.logger.info(`gitleaks found ${findings.length} secrets`);
+    console.log(`gitleaks found ${findings.length} secrets`);
   } catch (error) {
-    context.logger.warn(`gitleaks: ${error}`);
+    console.warn(`gitleaks: ${error}`);
   }
 
   return findings;
@@ -391,9 +389,9 @@ export async function runSemgrep(
       }
     }
 
-    context.logger.info(`semgrep found ${findings.length} issues`);
+    console.log(`semgrep found ${findings.length} issues`);
   } catch (error) {
-    context.logger.warn(`semgrep: ${error}`);
+    console.warn(`semgrep: ${error}`);
   }
 
   return findings;
@@ -457,9 +455,9 @@ export async function runLicenseCheck(
       }
     }
 
-    context.logger.info(`license check found ${findings.length} violations`);
+    console.log(`license check found ${findings.length} violations`);
   } catch (error) {
-    context.logger.warn(`license check: ${error}`);
+    console.warn(`license check: ${error}`);
   }
 
   return findings;
@@ -477,7 +475,7 @@ export async function reviewCriticalPaths(
   // This would integrate with Qwen Agent for AI code review
   // For now, return placeholder findings
 
-  context.logger.info(
+  console.log(
     `Reviewing critical paths: ${criticalPaths.join(', ')}`
   );
 
@@ -547,7 +545,7 @@ export async function crossValidate(input: {
   // This would integrate with Qwen Agent (different model) for review
   // For now, return placeholder result
 
-  context.logger.info(`Cross-validating findings with ${input.model}`);
+  console.log(`Cross-validating findings with ${input.model}`);
 
   return {
     falsePositives: [],
@@ -590,7 +588,7 @@ export async function generateReport(input: {
     }
   }
 
-  context.logger.info(`Generated report at ${reportPath}`);
+  console.log(`Generated report at ${reportPath}`);
 
   return { reportPath, evidencePath };
 }
@@ -640,9 +638,9 @@ ${input.complianceMaps.map((cm: ComplianceMap) => `### ${cm.framework}\n\nScore:
 export async function cleanup(repoPath: string): Promise<void> {
   try {
     await fs.rm(repoPath, { recursive: true, force: true });
-    context.logger.info(`Cleaned up ${repoPath}`);
+    console.log(`Cleaned up ${repoPath}`);
   } catch (error) {
-    context.logger.warn(`Cleanup failed: ${error}`);
+    console.warn(`Cleanup failed: ${error}`);
   }
 }
 
