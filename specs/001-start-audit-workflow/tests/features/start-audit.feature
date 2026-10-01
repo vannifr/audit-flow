@@ -2,10 +2,9 @@
 # Derived from requirements. Fix code to pass tests; re-run /iikit-04-testify if requirements change.
 
 Feature: Start Security Audit
-  @US-001 @P1
-  As a security auditor
-  I want to start an automated security audit for a code repository
-  So that I can identify security vulnerabilities and compliance issues
+  # As a security auditor
+  # I want to start an automated security audit for a code repository
+  # So that I can identify security vulnerabilities and compliance issues
 
   Background:
     Given the Temporal server is running
