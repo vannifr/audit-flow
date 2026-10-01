@@ -1,0 +1,14 @@
+{
+  "feature": "001-start-audit-workflow",
+  "phase": "plan",
+  "planview": {
+    "nodeClassifications": {
+      "CLI Client": "client",
+      "Temporal Worker": "server",
+      "Temporal Server": "server",
+      "File System": "storage",
+      "GitHub API": "external",
+      "Security Tools": "external"
+    }
+  }
+}
