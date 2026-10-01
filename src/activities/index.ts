@@ -34,7 +34,7 @@ const execAsync = promisify(exec);
  * @param url - The repository URL to validate
  * @returns true if valid, throws ApplicationFailure if invalid
  */
-function validateRepoUrl(url: string): void {
+export function validateRepoUrl(url: string): void {
   // Only allow GitHub URLs with specific patterns
   const githubPattern = /^https:\/\/github\.com\/[a-zA-Z0-9_-]+\/[a-zA-Z0-9_.-]+(\.git)?$/;
 
