@@ -49,7 +49,7 @@ steps:
   secrets-scan:
     image: docker.io/zricethezav/gitleaks:latest
     commands:
-      - gitleaks directory --verbose --redact=50 --exit-code 1 .
+      - gitleaks directory --verbose --redact=50 --exit-code 1 --gitleaks-ignore-path .gitleaksignore .
 
   # Phase 7: Dependency security audit - BLOCK on high vulnerabilities
   dependency-audit:
