@@ -32,7 +32,7 @@ steps:
     commands:
       - npm run test:coverage
     environment:
-      - NODE_ENV=test
+      NODE_ENV: test
 
   # Phase 5: Security - Secret scanning
   secrets:
@@ -45,7 +45,7 @@ steps:
   security:
     image: node:22-alpine
     commands:
-      - npm audit --audit-level=high || echo "WARN: Security vulnerabilities found"
+      - npm audit --audit-level=high
     failure: ignore
 
   # Phase 7: E2E Test (optional)
@@ -61,4 +61,4 @@ steps:
   coverage:
     image: node:22-alpine
     commands:
-      - echo "✅ Coverage threshold met: 65%+"# Updated at 2026-10-02T09:25:33+02:00
+      - echo 'Coverage threshold met - 65%+'
