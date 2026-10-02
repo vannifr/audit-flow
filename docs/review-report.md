@@ -12,7 +12,7 @@ Label: **B** = bevestigd met bewijs, **V** = vermoedelijk.
 - Een ontbrekende of crashende scanner levert stil 0 bevindingen op en het rapport toont geen waarschuwing (`Risk Level: CRITICAL` bleef staan door een regex-bevinding, zonder vermelding van de ontbrekende tools).
 - Een scan kan code van de doelrepo uitvoeren (RCE bevestigd) en workflowId/repoPath lopen onge-escaped door ~25 shell-strings.
 - De kwaliteitsgates zijn deels schijn: de coverage-drempel wordt niet afgedwongen, BDD draait 0 scenario's, meerdere CI-stappen zijn `echo`.
-- De pipeline op `main` is rood sinds #16 (Sonar-gate). De laatste groene run is #15.
+- De pipeline op `main` was rood vanaf #16 (Sonar-gate) en is sinds #24 groen doordat Sonar en SAST non-blocking zijn gemaakt, niet doordat de oorzaken zijn opgelost.
 - De statusdocumenten spreken de werkelijkheid en elkaar tegen.
 
 De architectuur (Temporal, signalen, queries, vaste rapportstructuur) is een goede basis. Zie §7 en §8.
@@ -91,7 +91,7 @@ Observability: pino-logs zijn bruikbaar (137 regels in één worker-run, geen se
 | 10 | Hoog | Correctheid | Semgrep: exit ≠ 0 met geschreven rapport wordt weggegooid; niet-deterministisch | activities/index.ts (runSemgrep) | Scenario S1: 3 vs 11 bevindingen (B/V) | Exitcode 1 als "bevindingen" behandelen, rapport altijd parsen | S |
 | 11 | Hoog | Governance | Coverage-drempel dode config (`threshold` i.p.v. `thresholds`): `verify` groen bij 71,4%/43,5% | vitest.config.ts:10 | Kopie-config met `thresholds` geeft exit 1 (B) | Sleutel corrigeren, drempel realistisch | S |
 | 12 | Hoog | Testen | BDD actief in naam: `test:bdd` draait 0 scenario's, stepdefinities in `specs/` worden niet geladen, deels tautologisch | .cucumber.js:3 | "0 scenarios, 0 steps" (B) | Pad corrigeren, tautologische stappen herschrijven, in CI | M |
-| 13 | Hoog | CI | Pipeline `main` rood sinds #16; Sonar-gate faalt, security-stappen worden overgeslagen | .woodpecker.yml | #21 `sonarqube` exit 3, rest skipped (B) | Oorzaak in Sonar-dashboard, coverage en duplicatie | M |
+| 13 | Hoog | CI | Pipeline rood #16–#22 op Sonar-gate; groen in #24 alleen doordat Sonar en SAST non-blocking zijn gemaakt (commits `ecbdb69`, `62ed87d`) | .woodpecker.yml | #21 `sonarqube` exit 3, rest skipped; #24 success (B) | Gates terugzetten op blocking nadat coverage en SAST-bevindingen zijn opgelost | M |
 | 14 | Middel | Governance | Test leeggemaakt en geskipt: `should clone repository successfully` zonder body of asserts, commit zegt het niet | tests/… (zie §4), commit 9827a23 | `git log -p` (B) | Testen herstellen | S |
 | 15 | Middel | Security | Reject-signaal genegeerd; `skipApproval` niet in rapport; elke client kan het zetten | workflows/index.ts:152-160, client.ts:71 | Scenario S2 (B) | Reject-handler, rapportvermelding | S |
 | 16 | Middel | Security | Voorspelbare paden `/tmp/audit-<id>` en gedeeld `/tmp/sql-injection-rules.yaml`; cleanup alleen op succespad | activities/index.ts:130, 469, 1135 | Code (B), exploit (V) | `mkdtemp` 0700, cleanup in `finally` | S |
@@ -154,7 +154,7 @@ Verzwakking van assertions: bevestigd voor `cloneRepository` (9827a23). Andere c
 | "Implements ISO 25010" | README | **Weerlegd** (zie §5) |
 | "95% enterprise score" | review-instructie | **Niet gevonden** in de 5 docs; AUDIT-COVERAGE zegt 88% |
 | "Dependency-audit blocking" | ENTERPRISE | **Weerlegd**: `failure: ignore` |
-| CI groen op `main` | STATUS | **Weerlegd**: #16–#21 rood |
+| CI groen op `main` | STATUS | **Weerlegd** voor #16–#22; #24 groen met verzachte gates |
 | `npm run verify` dekt CI | hooks | **Weerlegd**: mist BDD, audit, license, gitleaks, Sonar, semgrep |
 | Pad `temporal-security-audit-framework` | STATUS.md:4, README | **Weerlegd**: verkeerd pad |
 
@@ -201,5 +201,5 @@ Kleine atomaire trunk-commits, elke met `npm run verify` en de demo als verifica
 - **Demo en cloning:** `validateRepoUrl` accepteert alleen `https://github.com/owner/repo`, dus de demo gebruikt `url.<base>.insteadOf` via `GIT_CONFIG_*`. De getoetste clone-route is daarmee dezelfde code, maar het netwerkpad (echte GitHub) is alleen in S5 gedekt.
 - **Verstoring:** een oude worker (PID 750512, draaide sinds de dag ervoor) pakte taken van de eerste demo-runs af. Met toestemming gestopt; daarna draaide de schone run (`demo-run3.log`). Alleen die run en de scenario-run zijn gebruikt.
 - **Tools:** `temporal` en `k6` waren afwezig en zijn zonder sudo in `~/.local` geïnstalleerd (k6 buiten de standaard-PATH, omdat `measureThroughput` anders `verify` breekt). gitleaks, semgrep, lighthouse, axe, node en docker waren aanwezig. Geen Lighthouse-, axe- of k6-run tegen de demo: er is geen draaiende demosite.
-- **CI na de demo-commits:** #21 (`daf45af`) faalt op `sonarqube` (exit 3), net als #16–#20; de stappen erna (waaronder `secrets-scan` met `.gitleaks.toml`) zijn overgeslagen. De gitleaks-uitzondering voor `demo/` is daarom lokaal geverifieerd (`gitleaks dir`, 0 leaks), niet in CI. Het Sonar-dashboard is niet geraadpleegd.
+- **CI na de demo-commits:** #21 (`daf45af`) faalde op `sonarqube` (exit 3), net als #16–#20. Daarna zijn buiten deze review om twee commits op `main` gekomen (`ecbdb69` "make SonarQube non-blocking", `62ed87d` "make SAST non-blocking and exclude demo directory"). Pipeline #24 (`62ed87d`) is daardoor **groen, maar doordat gates zijn verzacht, niet doordat de oorzaken zijn opgelost**: de Sonar-gate faalt nog steeds op coverage en SAST blokkeert niet meer. #23 (mijn rapportcommit) is `killed` (vervangen door #24). Eigen fout: ik sloot `demo/` uit van gitleaks en vitest maar niet van Semgrep; de SAST-stap vond 5 bevindingen in `demo/` (de bewust geplante defecten), wat de sast-stap liet falen. De uitsluiting is door de latere commit toegevoegd. Mijn eigen uitsluitingen voor gitleaks zijn lokaal geverifieerd; in CI draait `secrets-scan` pas sinds #24 weer.
 - **Niet uitgevoerd:** P0-timeout (7 dagen), activity-timeout/retry zonder codewijziging, docker build en `docker compose up`.
