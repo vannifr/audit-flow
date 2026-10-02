@@ -6,13 +6,13 @@ export default defineConfig({
     environment: 'node',
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'json', 'html'],
+      reporter: ['text', 'json', 'html', 'lcov'],
       threshold: {
         global: {
-          branches: 40,
-          functions: 75,
-          lines: 68,
-          statements: 65,
+          branches: 60,
+          functions: 80,
+          lines: 80,
+          statements: 80,
         },
       },
     },
