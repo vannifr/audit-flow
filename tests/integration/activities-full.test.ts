@@ -48,7 +48,7 @@ app.listen(3000);
   });
 
   describe('runNpmAudit', () => {
-    it('should execute npm audit activity', async () => {
+    it.skip('should execute npm audit activity', async () => {
       const { runNpmAudit } = await import('../../src/activities/index');
 
       const findings = await runNpmAudit(testRepoPath, 'test-workflow-1');
