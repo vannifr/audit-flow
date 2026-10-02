@@ -213,6 +213,52 @@ This project follows Intent Integrity Kit governance:
 
 ---
 
+## ISO 25010 NFR Implementation
+
+This framework implements ISO/IEC 25010:2011 software quality characteristics as Temporal activities:
+
+### Performance Effectiveness
+- **Throughput** - k6 load testing (measureThroughput activity)
+- **Lighthouse** - Core Web Vitals: LCP, FID, CLS (runLighthouse activity)
+
+### Reliability
+- **Durability** - Data retention checks (assessDurability activity)
+- **Stability** - Error pattern detection (assessStability activity)
+- **Robustness** - Exception handling coverage (assessRobustness activity)
+- **Resilience** - Failover/recovery patterns (assessResilience activity)
+
+### Security
+- **Exploitability** - CVSS score assessment (assessExploitability activity)
+- **SQL Injection** - Custom semgrep rules (runSqlInjectionCheck activity)
+
+### Maintainability
+- **Readability** - Code clarity scoring (measureReadability activity)
+- **Modifiability** - Architecture check (planned)
+- **Testability** - Coverage analysis (planned)
+- **Analyzability** - Logging/metrics (checkObservability activity)
+
+### Portability
+- **Adaptability** - Cross-platform check (planned)
+- **Installability** - Deployment check (planned)
+
+### Functional Suitability
+- **Completeness** - Requirements coverage (checkFunctionalRequirements activity)
+- **Correctness** - Test validation (planned)
+- **Appropriateness** - Domain mapping (generateScopeDocument activity)
+
+### Compatibility
+- **Interoperability** - API compliance (planned)
+- **Co-existence** - Environment check (planned)
+
+### Usability
+- **Accessibility** - WCAG 2.2 AA via axe-cli (runAxeAccessibility activity)
+- **Understandability** - Documentation check (checkDocumentation activity)
+
+### Safety
+- **Risk mitigation** - Blind spots detection (checkBlindSpots activity)
+
+---
+
 ## Contributing
 
 1. Follow CONSTITUTION.md governance
