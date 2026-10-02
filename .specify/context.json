@@ -10,5 +10,6 @@
       "GitHub API": "external",
       "Security Tools": "external"
     }
-  }
+  },
+  "tdd_determination": "mandatory"
 }

@@ -1,16 +1,35 @@
-# Audit Orchestration Constitution
+<!--
+Sync Impact Report
+Version change: 1.0.0 -> 2.0.0 (MAJOR: sections removed, principle claims redefined)
+Added principles: VI Evidence-First, VII No False Comfort, VIII Untrusted Input
+  Isolation, IX Human Accountability, X Claims Match Reality, XI Independent
+  Verification
+Modified principles: II (coverage floor must be enforced by a gate that can
+  fail), V (technology-neutral wording)
+Removed sections: Technology Stack, Quality Metrics, Non-Functional Requirement
+  tables, Performance Metrics, Enforcement (concrete tools, versions, numbers
+  and configuration belong in plan.md per phase separation)
+Removed claims: "build fails if coverage < 80%" and "64.89% coverage, 161 tests"
+  (disproved by docs/review-report.md)
+Follow-up TODOs: carry the removed technology, tooling and measurable NFR
+  content into the plan of the next feature; align specs 001-003 with the
+  .spec.md format; regenerate assertion hashes via /iikit-04-testify.
+Project codename: Tessera (internal). The commercial name is not used here.
+-->
+
+# Audit Orchestration Constitution (Project Tessera)
 
 ## Core Principles
 
 ### I. Security-First Development
 
-**Critical systems require security-first mindset.** This framework handles:
+**Critical systems require a security-first mindset.** This framework handles:
 - Customer data in enterprise environments
 - Security audit results with compliance implications
-- Financial data (trading bots, payment systems)
+- Evidence that third parties rely on
 
 **Requirements**:
-- All code must pass security scanning before merge
+- All code passes security scanning before it reaches the trunk
 - No hardcoded secrets, credentials, or API keys
 - Input validation at all system boundaries
 - Secure defaults for all configurations
@@ -18,25 +37,28 @@
 
 ### II. Test-Driven Development (NON-NEGOTIABLE)
 
-**TDD mandatory for all production code**:
-1. Write tests first → Get approval → Verify tests fail
-2. Implement minimum code to pass tests
-3. Refactor while keeping tests green
+**TDD is mandatory for all production code**:
+1. Write tests first, get approval, verify the tests fail
+2. Implement the minimum code to pass the tests
+3. Refactor while keeping the tests green
 
 **Coverage requirements**:
-- Minimum 80% code coverage for all modules
-- 100% coverage for critical paths (workflow orchestration, security scans)
-- Integration tests required for:
-  - Temporal workflow execution
-  - Security scan activities
-  - Compliance mapping
-  - Report generation
+- A coverage floor is defined in the plan and enforced by an automated gate
+- A gate that cannot fail does not count: every gate is proven to fail when its
+  threshold is breached before it is relied upon
+- Critical paths (workflow orchestration, security scans, approval handling)
+  carry stricter coverage than the floor, stated in the plan
+- Integration tests are required for workflow execution, scan activities,
+  compliance mapping, and report generation
 
 **Test types required**:
 - Unit tests for activities and utilities
 - Integration tests for workflows
-- E2E tests for complete audit cycles
-- BDD tests for user-facing features (via IIKit)
+- End-to-end tests for complete audit cycles
+- Behavior tests for user-facing features, executed, not only written
+
+**Assertion integrity**: skipping, emptying, or weakening a test to obtain a
+green result is prohibited. A skipped test carries a recorded cause and owner.
 
 ### III. Enterprise Compliance
 
@@ -47,132 +69,189 @@
 - GDPR — EU data protection (when processing EU personal data)
 
 **Compliance mapping**:
-- Every finding must map to compliance controls
-- Evidence must be traceable to requirements
-- Audit reports must include compliance status
-- Changes must be documented for audit trails
+- Every finding maps to compliance controls through a real mapping, never a
+  placeholder
+- Evidence is traceable to requirements
+- Audit reports state compliance status and its limits
+- Changes are documented for audit trails
 
 ### IV. Traceability & Governance
 
-**Every feature must be traceable**:
-- Spec → Plan → Tasks → Tests → Code → Evidence
+**Every feature is traceable**:
+- Spec -> Plan -> Tasks -> Tests -> Code -> Evidence
 - User stories with acceptance criteria
-- BDD scenarios for validation
+- Behavior scenarios for validation
 - Pre-commit hooks for integrity
 
 **Documentation requirements**:
-- All public APIs documented with examples
+- All public interfaces documented with examples
 - All workflows documented with diagrams
 - All compliance mappings documented
 - All security decisions documented
 
 ### V. Reliability & Observability
 
-**Production systems must be observable**:
-- Structured logging (JSON format)
-- Request IDs for correlation
+**Production systems are observable**:
+- Structured logging
+- Correlation identifiers across a run
 - Metrics for all operations
 - Alerts for critical failures
 
 **Reliability requirements**:
-- Retry logic for transient failures
-- Timeouts for all external calls
-- Graceful degradation where possible
-- Circuit breakers for dependencies
+- Retry logic for transient failures, and no retry for invalid input
+- Timeouts and liveness signals for all long-running and external calls
+- A run interrupted by a crash resumes within a bounded, stated time
+- Graceful degradation, always reported as degradation (see principle VII)
 
-**Temporal-specific**:
-- All workflows must have timeouts
-- All activities must be idempotent where possible
-- Signals must be documented
-- Queries must be side-effect free
+**Orchestration rules**:
+- All workflows and activities have timeouts
+- Activities are idempotent where possible
+- Signals are documented and every signal outcome is handled
+- Queries are side-effect free
+
+### VI. Evidence-First
+
+**Every statement the system makes is backed by a record of what happened**:
+- Each executed step records the command and arguments, tool version, start and
+  end time, exit code, and a content hash of its raw output
+- Each finding links to the evidence record that produced it
+- Each run records the identity of the audited source (revision) and a manifest
+  of all evidence with hashes
+- Evidence is immutable after creation and is retained for at least one year
+- Evidence never contains unredacted secrets
+
+### VII. No False Comfort
+
+**"No findings" is only reported when the scan demonstrably ran**:
+- Each scanner and check has an explicit status: completed, partial, failed,
+  skipped, or unavailable
+- A failed, missing, or partial scan is reported as INCOMPLETE and is visible in
+  the summary, never silently treated as clean
+- A tool that exits non-zero because it found issues is distinct from a tool that
+  failed
+- Risk levels and summaries state what was not scanned
+- Placeholder or heuristic results are labeled as such and never presented as
+  verified analysis
+
+### VIII. Untrusted Input Isolation
+
+**The audited source is hostile by default**:
+- Audited code, configuration, and repository metadata never execute inside the
+  framework's trust boundary
+- Scanners run with framework-controlled configuration; settings shipped in the
+  audited source cannot suppress, redirect, or alter a scan
+- External commands receive arguments as data, never through shell
+  interpretation
+- Working locations are unpredictable, private, size-limited, and removed on
+  every exit path
+- Network exposure of orchestration components is explicit and authenticated
+
+### IX. Human Accountability
+
+**Decisions that accept risk belong to a person and are recorded**:
+- Approval and rejection are both honored and both recorded with who, when, and
+  what was decided
+- Bypassing an approval is explicit, attributed, and shown in the report
+- An unanswered approval ends in a defined, reported outcome, never in an
+  implicit approval
+- Generated or model-assisted conclusions are advice; they never lower a
+  severity or remove a finding without human approval
+
+### X. Claims Match Reality
+
+**Documentation states only what has been measured**:
+- Status figures (tests, coverage, domains, readiness) come from a single source
+  produced by the pipeline, not from hand-maintained text
+- A readiness or compliance claim cites the evidence that supports it
+- Planned capabilities are labeled planned and are not counted as delivered
+- Contradicting status documents are removed or reduced to links to the single
+  source
+
+### XI. Independent Verification
+
+**The framework is measured against known truth**:
+- A maintained ground-truth case set with known defects and clean controls
+  exists, with recall and false-positive rates tracked per release
+- A release does not claim a capability whose ground-truth recall is
+  unmeasured
+- Review of delivered work is performed independently of its author, by a
+  person, or by the automated pipeline plus structured self-review for solo work
 
 ## Quality Gates
 
 ### Pre-Commit Checks (NON-NEGOTIABLE)
 
 **Required before every commit**:
-- ✅ TypeScript compilation (`tsc --noEmit`)
-- ✅ Linting passes (`npm run lint`)
-- ✅ Tests pass (`npm test`)
-- ✅ Coverage threshold met (80%+)
-- ✅ Security scan passes (`npm audit`)
-- ✅ No secrets detected
+- Compilation or build succeeds
+- Static analysis passes
+- Tests pass and the coverage floor is met
+- Dependency vulnerability scan passes at the agreed severity
+- No secrets detected
 
 **Bypassing prohibited**:
-- ❌ NEVER use `git commit --no-verify` or `git commit -n`
-- ❌ NEVER disable or delete `.git/hooks/`
-- ❌ NEVER use git plumbing commands to circumvent hooks
+- NEVER use `git commit --no-verify` or `git commit -n`
+- NEVER disable or delete `.git/hooks/`
+- NEVER use git plumbing commands to circumvent hooks
 - If blocked, **fix the root cause** — do not work around
 
 ### Pre-Merge Checks
 
-**Required before merging to main**:
-- ✅ All pre-commit checks pass
-- ✅ Code review approved
-- ✅ Integration tests pass
-- ✅ Security review (for security-related changes)
-- ✅ Documentation updated
-- ✅ CHANGELOG updated
+**Required before work lands on the trunk**:
+- All pre-commit checks pass
+- Review is complete (see Development Workflow)
+- Integration tests pass
+- Security review for security-related changes
+- Documentation updated in the same change
 
 ### CI/CD Pipeline
 
-**Automated checks in CI**:
-- Build: TypeScript compilation
-- Test: Unit + integration tests
-- Security: npm audit, gitleaks, semgrep
-- Coverage: Report generation, threshold enforcement
-- Compliance: Schema validation, assertion integrity
+**Automated checks in CI mirror the local verification**:
+- Build and test with coverage enforcement
+- Security: dependency, secret, and static analysis scans
+- Compliance: schema validation and assertion integrity
+- Every gate blocks; a gate that is made non-blocking is recorded as a
+  deviation with owner and deadline
+- Local and CI verification stay equivalent: a gap between them is a defect
 
 ## Development Workflow
 
 ### Branch Strategy
 
 **Trunk-based development**:
-- Main branch is always deployable
-- Feature branches: `feature/XXX-description`
-- Fix branches: `fix/XXX-description`
-- Short-lived branches (< 1 day preferred)
+- The main branch is always deployable
+- Small, atomic, green commits land on the trunk directly
+- Unfinished or risky work ships dark behind a toggle, not on a long-lived branch
 
 **Commit standards**:
 - Conventional Commits format
 - One logical change per commit
-- Reference issue/task in commit message
-- Sign commits (GPG recommended)
+- Reference the task in the commit message
 
 ### Code Review
 
-**All changes require review**:
-- Minimum 1 approval for non-critical changes
-- Minimum 2 approvals for critical changes (security, compliance, workflows)
-- Security review required for:
-  - Authentication/authorization changes
-  - Data handling changes
-  - Cryptographic operations
-  - External integrations
+**All changes are reviewed**:
+- Team work: at least one independent approval; two for critical changes
+  (security, compliance, workflows)
+- Solo work: automated pipeline plus structured self-review against spec and
+  acceptance criteria
+- Security review for authentication, data handling, cryptography, and external
+  integrations
 
 **Review checklist**:
 - [ ] Code follows standards
-- [ ] Tests adequate and passing
+- [ ] Tests adequate, meaningful, and passing
 - [ ] Security implications considered
 - [ ] Documentation updated
 - [ ] No hardcoded secrets
 - [ ] Error handling appropriate
 - [ ] Logging adequate
+- [ ] Failure of any dependency is reported, not hidden
 
-### Technology Stack
+### Dependency Management
 
-**Approved technologies**:
-- Runtime: Node.js 18+ (v22 recommended)
-- Language: TypeScript (strict mode)
-- Orchestration: Temporal.io
-- Testing: Vitest (unit), Playwright (E2E)
-- Linting: ESLint
-- Security: npm audit, gitleaks, semgrep
-
-**Dependency management**:
 - Minimal dependencies (security surface)
-- Lock files required (package-lock.json)
-- Regular security audits (automated)
+- Lock files required and installation reproducible without workarounds
+- Regular automated security audits
 - License compliance checking
 
 ## Security Requirements
@@ -181,14 +260,13 @@
 
 **NEVER**:
 - Commit secrets to version control
-- Log secrets or sensitive data
+- Log secrets or sensitive data, or write them to evidence unredacted
 - Hardcode API keys or credentials
 - Use production secrets in development
 
 **ALWAYS**:
-- Use environment variables for secrets
-- Use `.env` files locally (gitignored)
-- Use secure secret management in production
+- Supply secrets through the environment or a secret manager
+- Keep local secret files out of version control
 - Rotate secrets on compromise
 
 ### Data Protection
@@ -200,14 +278,14 @@
 - **Level 0 (Public)**: Publicly available data
 
 **Handling requirements**:
-- Level 3: Encryption at rest + in transit, audit logging
+- Level 3: Encryption at rest and in transit, audit logging
 - Level 2: Encryption in transit, access control, audit logging
 - Level 1: Access control, audit logging
 - Level 0: No special handling
 
 ### Audit Trail
 
-**All security-relevant operations must be logged**:
+**All security-relevant operations are logged**:
 - Who performed the action
 - What action was performed
 - When the action occurred
@@ -215,9 +293,8 @@
 - Result of the action
 
 **Retention**:
-- Audit logs retained for minimum 1 year
-- Logs must be immutable
-- Logs must be searchable
+- Audit logs retained for a minimum of 1 year
+- Logs are immutable and searchable
 
 ## Governance
 
@@ -225,30 +302,32 @@
 
 **This constitution supersedes**:
 - Individual preferences
-- Team conventions (unless documented in CONSTITUTION)
+- Team conventions (unless documented here)
 - External practices (unless explicitly adopted)
 
 **Amendments require**:
 - Documented rationale
-- User approval
-- Migration plan for existing code
-- Version increment
+- Explicit user approval
+- Migration plan for existing artifacts
+- Version increment (MAJOR: principle removal or redefinition, MINOR: new
+  principle, PATCH: clarification)
 
 ### Conflict Resolution
 
 **When conflicts arise**:
-1. Refer to CONSTITUTION.md first
+1. Refer to this constitution first
 2. Check compliance requirements
-3. Consult security team (for security matters)
-4. Document decision and rationale
+3. Consult the security owner (for security matters)
+4. Document the decision and rationale
 
 ### Continuous Improvement
 
 **Regular reviews**:
-- Constitution review: Quarterly
-- Security review: Monthly
-- Dependency audit: Weekly (automated)
-- Compliance review: Per regulatory cycle
+- Constitution review: quarterly
+- Security review: monthly
+- Dependency audit: continuous and automated
+- Compliance review: per regulatory cycle
+- Ground-truth recall and false-positive rates: every release
 
 ## Integrity
 
@@ -258,265 +337,14 @@ Pre-commit hooks are a critical integrity gate. The following are prohibited:
 
 - **NEVER** use `git commit --no-verify` or `git commit -n` to bypass hooks
 - **NEVER** delete, modify, or disable files in `.git/hooks/`
-- **NEVER** use git plumbing commands (`git commit-tree`, `git mktree`) to circumvent hooks
-- If a pre-commit hook blocks your commit, **fix the root cause** — do not work around the hook
-- For assertion integrity failures: re-run `/iikit-04-testify` to regenerate hashes
+- **NEVER** use git plumbing commands (`git commit-tree`, `git mktree`) to
+  circumvent hooks
+- If a pre-commit hook blocks your commit, **fix the root cause**
+- For assertion integrity failures: re-run `/iikit-04-testify` to regenerate
+  hashes
 
-**CI enforcement**: Add `verify-assertion-integrity.sh` to CI pipeline for server-side verification.
-
----
-
-**Version**: 1.0.0 | **Ratified**: 2026-10-01 | **Last Amended**: 2026-10-01
+**CI enforcement**: assertion integrity is also verified server-side in CI.
 
 ---
 
-## Definition of Done (DoD)
-
-### Feature-Level DoD
-
-**A feature is DONE when ALL criteria are met**:
-
-**Code Quality**:
-- [ ] Code compiles without errors (`npm run build`)
-- [ ] TypeScript strict mode enabled, no `any` types without justification
-- [ ] ESLint passes with 0 errors (`npm run lint`)
-- [ ] No console.log in production code (use structured logging)
-- [ ] All functions have explicit return types
-- [ ] All public APIs documented with JSDoc
-
-**Testing**:
-- [ ] Unit tests written and passing (`npm run test`)
-- [ ] Test coverage ≥ 80% for new code (`npm run test:coverage`)
-- [ ] Integration tests for workflow changes
-- [ ] BDD scenarios pass for user-facing features (`npm run test:bdd`)
-- [ ] Edge cases and error paths tested
-
-**Security**:
-- [ ] No hardcoded secrets (gitleaks scan clean)
-- [ ] Input validation at all boundaries
-- [ ] No SQL injection/command injection vulnerabilities
-- [ ] Dependencies audited (`npm audit --audit-level=high`)
-- [ ] Security review completed for security-sensitive changes
-
-**Documentation**:
-- [ ] README updated if public API changed
-- [ ] CHANGELOG updated
-- [ ] Inline comments for complex logic
-- [ ] Architecture diagrams updated if structure changed
-
-**Review & Integration**:
-- [ ] Code reviewed and approved
-- [ ] All CI checks pass (green build)
-- [ ] No merge conflicts
-- [ ] Branch merged to main (trunk-based)
-
-### Task-Level DoD
-
-**A task is DONE when**:
-- [ ] Implementation complete
-- [ ] Tests written and passing
-- [ ] Code reviewed
-- [ ] Documentation updated
-- [ ] Committed to main
-
----
-
-## Quality Metrics
-
-### Code Quality Gates
-
-**Thresholds (INTERIM - Phase 1)**:
-| Metric | Threshold | Target | Enforced By |
-|--------|-----------|--------|-------------|
-| Code Coverage | >= 65% | 80% (Phase 2) | Vitest `coverageThreshold` |
-| TypeScript Errors | 0 | 0 | `tsc --noEmit` |
-| ESLint Errors | 0 | 0 | `npm run lint` |
-| Security Vulnerabilities (high/critical) | 0 | 0 | `npm audit --audit-level=high` |
-| Secrets Detected | 0 | 0 | gitleaks |
-| Bundle Size | < 5MB | < 5MB | Build check |
-
-**Phase 2 Coverage Target (80%)**:
-- Requires integration tests with Temporal server
-- Requires real tool execution tests
-- Current coverage: 64.89% (161 tests passing)
-- See COVERAGE.md for improvement plan
-
-### Maintainability Metrics
-
-**Code complexity**:
-- Cyclomatic complexity ≤ 10 per function
-- Cognitive complexity ≤ 15 per function
-- Function length ≤ 50 lines (exceptions require justification)
-- File length ≤ 500 lines (exceptions require justification)
-
-**Dependencies**:
-- Direct dependencies ≤ 10 per module
-- Total dependencies tracked in package-lock.json
-- No deprecated dependencies
-- License compliance checked
-
-### Test Quality Metrics
-
-**Coverage breakdown (Phase 1 Interim)**:
-- Statement coverage >= 65% (target: 80%)
-- Branch coverage >= 40% (target: 80%)
-- Function coverage >= 75% (target: 80%)
-- Line coverage >= 68% (target: 80%)
-
-**Test effectiveness**:
-- All test scenarios from spec covered
-- All acceptance criteria tested
-- Edge cases covered
-- Error paths covered
-
----
-
-## Non-Functional Requirements (NFR)
-
-### Performance Requirements
-
-**Response times**:
-| Operation | Target | Max |
-|-----------|--------|-----|
-| Workflow start | < 1s | 5s |
-| Status query | < 100ms | 500ms |
-| Audit discovery phase | < 2 min | 5 min |
-| Security scan (1000 deps) | < 15 min | 30 min |
-| Report generation | < 30s | 60s |
-| Complete audit cycle | < 25 min | 60 min |
-
-**Throughput**:
-- 10 concurrent audits per worker
-- 100 findings per second processing
-- 1000 repository files per scan
-
-### Reliability Requirements
-
-**Availability**:
-- System uptime ≥ 99.9%
-- Worker availability ≥ 99.5%
-- Temporal server availability ≥ 99.99%
-
-**Failure handling**:
-- Activity retries: max 3 attempts
-- Workflow retries: configurable per use case
-- Circuit breaker: open after 5 consecutive failures
-- Graceful degradation: continue with partial results
-
-**Data integrity**:
-- All findings persisted with evidence
-- No data loss on worker restart
-- Idempotent activities where possible
-
-### Scalability Requirements
-
-**Horizontal scaling**:
-- Workers scale independently
-- Multiple Temporal server instances (production)
-- Database connection pooling
-
-**Vertical limits**:
-- Memory per worker: ≤ 2GB
-- CPU per worker: ≤ 2 cores
-- Disk per audit: ≤ 1GB temporary
-
-### Security Requirements
-
-**Authentication**:
-- Temporal server: mTLS (production)
-- Worker: Namespace + Task Queue isolation
-- API: Token-based (if exposed)
-
-**Authorization**:
-- Role-based access control
-- Least privilege principle
-- Audit trail for all access
-
-**Data protection**:
-- Encryption at rest (Level 2+ data)
-- Encryption in transit (TLS 1.2+)
-- Secrets in environment variables only
-
----
-
-## Performance Metrics
-
-### System Metrics
-
-**Resource utilization**:
-| Metric | Warning | Critical |
-|--------|---------|----------|
-| CPU usage | > 70% | > 90% |
-| Memory usage | > 70% | > 90% |
-| Disk I/O | > 100 MB/s | > 500 MB/s |
-| Network I/O | > 10 MB/s | > 50 MB/s |
-
-**Temporal metrics**:
-- Workflow execution latency: < 100ms
-- Activity task queue latency: < 50ms
-- Workflow task queue latency: < 50ms
-
-### Application Metrics
-
-**Business metrics**:
-- Audits completed per hour
-- Findings per audit (P0, P1, P2, P3)
-- False positive rate
-- Time to remediation
-
-**Quality metrics**:
-- Build success rate: > 95%
-- Test pass rate: > 99%
-- Code coverage trend: increasing
-- Technical debt ratio: < 5%
-
-### Monitoring & Alerting
-
-**Required monitoring**:
-- Workflow execution success/failure rate
-- Activity execution latency
-- Queue depth (pending tasks)
-- Error rates by type
-
-**Alerting thresholds**:
-- P0 finding detected → Immediate alert
-- Workflow failure rate > 5% → Alert
-- Queue depth > 100 → Alert
-- Worker down → Immediate alert
-
----
-
-## Enforcement
-
-### Automated Enforcement
-
-**CI Pipeline (NON-NEGOTIABLE)**:
-```yaml
-verify:
-  - npm run build (TypeScript compilation)
-  - npm run test:coverage (Tests + 80% threshold)
-  - npm run lint (ESLint 0 errors)
-  - npm audit --audit-level=high (Security)
-  - gitleaks scan (Secrets)
-```
-
-**Pre-commit Hooks (NON-NEGOTIABLE)**:
-- `.githooks/pre-commit`: `npm run verify`
-- `.githooks/pre-push`: `npm run verify` + gitleaks
-
-**Coverage enforcement**:
-- `vitest.config.ts`: `threshold.global: { lines: 80, functions: 80, branches: 80, statements: 80 }`
-- Build fails if coverage < 80%
-
-### Manual Review
-
-**Code review checklist**:
-- DoD checklist verified
-- Quality metrics met
-- NFR requirements satisfied
-- Security implications considered
-
-**Sign-off requirements**:
-- Technical lead: Architecture changes
-- Security lead: Security-sensitive changes
-- Product owner: User-facing features
+**Version**: 2.0.0 | **Ratified**: 2026-10-01 | **Last Amended**: 2026-10-02
