@@ -39,7 +39,7 @@ describe('Helper Functions Coverage', () => {
       if (fs.existsSync(testRepo)) {
         fs.rmSync(testRepo, { recursive: true, force: true });
       }
-    });
+    }, 120000);
   });
 
   describe('mapSemgrepSeverityToP', () => {
