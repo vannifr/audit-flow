@@ -189,3 +189,21 @@ Besloten door de gebruiker op 2026-10-02: FR-011 wordt in deze feature deels gel
 ## R18 Tessl-tiles
 
 Overgeslagen: geen nieuwe externe technologie. Alle bouwstenen zijn Node-ingebouwd (`crypto`, `fs`, `child_process`, `os`, `path`) of al aanwezig (Temporal SDK, pino, vitest). Geen nieuwe dependencies.
+
+## R19 Handtekening van het manifest (FR-018, FR-019, FR-020)
+
+**Beslissing** (gebruiker, 2026-10-02: lokale sleutel voor de eerste versie):
+- Ed25519 via Node `crypto` (geen nieuwe dependency). `npm run evidence:keygen` maakt een sleutelpaar op `TESSERA_SIGNING_KEY` (standaard `~/.config/tessera/signing/ed25519.pem`, map 0700, bestand 0600) en exporteert de publieke sleutel met een `keyId` (sha256 van de SPKI-DER).
+- De sleutel staat nooit onder `TESSERA_EVIDENCE_ROOT`: `sealEvidence` weigert te tekenen als het sleutelpad (na `realpath`) binnen de bundelroot ligt, en de sleutel komt niet in env-doorgifte naar scanners, logs, history of rapport.
+- Ondertekende payload: `tessera-sig/v1\n<runId>\n<rootHash>\n<sha256(manifest.json)>\n<signedAt>`. `signature.json` in de bundel (0400) bevat `schema`, `alg`, `keyId`, `signedAt`, `signature` (base64) en de payload-velden. De handtekening wordt gezet nadat `manifest.json` is geschreven; de bundel wordt daarna verzegeld.
+- Ontbrekende sleutel: de audit krijgt `signature: unsigned` en assurance-niveau 0. Met `TESSERA_REQUIRE_SIGNATURE=1` (verplicht in productie) wordt de uitkomst INCOMPLEET. Een handtekening mislukt nooit stil.
+- Verificatie (`evidence:verify <bundel> --pubkey <bestand|map>`): `valid`, `invalid`, `unsigned`, `unknown-key`. Exit 0 alleen bij `valid` én schone hash-controle. `verified` verschijnt nooit bij `unsigned` of `unknown-key` (FR-019).
+- `signedAt` is de klok van de ondertekenaar. Rapport en verificatie zeggen dat expliciet: "tijdstip niet onafhankelijk getijdstempeld".
+- Assurance-niveau (FR-020) wordt berekend, niet ingevuld: 0 = geen geldige handtekening; 1 = geldige handtekening met lokale sleutel. Hogere niveaus staan in `docs/assurance-roadmap.md` en zijn niet in deze feature.
+- Sleutelrotatie: `keyId` staat in elke handtekening; oude publieke sleutels blijven in de vertrouwde map staan om oude bundels te verifiëren.
+
+**Rationale**: een manifest met alleen hashes kan door iedereen met schrijfrechten opnieuw worden berekend. Een handtekening bindt het bewijs aan een sleutel die de ontvanger kan controleren en maakt "manifest herberekenen" detecteerbaar (SC-007). Ed25519 is klein, snel en ingebouwd.
+
+**Bekende beperking, bewust benoemd**: de sleutel staat op dezelfde host. Wie als de workergebruiker of root kan schrijven, kan ook de sleutel gebruiken en dus een geldige handtekening zetten. Dit is assurance-niveau 1. Sleutelbeheer buiten het beheerdomein (KMS of HSM, aparte ondertekenaar), onafhankelijke tijdstempel (RFC 3161), externe verankering en scanner-attestatie zijn niveau 2 en 3 in de roadmap. Aanbevolen al in v1: de sleutel onder een andere OS-gebruiker dan de worker laten staan en alleen de ondertekenstap laten aanroepen.
+
+**Alternatieven**: handtekening achteraf door een aparte tool (extra stap, kans op vergeten); sigstore of KMS nu (infrastructuur en kosten, niet nodig voor niveau 1); GPG (externe binary en keyring-gedrag).

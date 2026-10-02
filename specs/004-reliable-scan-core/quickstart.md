@@ -50,7 +50,7 @@ Handmatig (SC-006, < 2 minuten): open het rapport, kies een finding, zoek de rec
 | 3.1 | Opgenomen npm audit-uitvoer van de demo (exit 1) | unit policy | één finding per (pakket, advisory); lodash, minimist en express/body-parser/qs/path-to-regexp aanwezig met ernst volgens de mapping (critical → P0, high → P1, moderate → P2, low → P3) | FR-004, SC-003 |
 | 3.2 | Nep-runner met `stdoutTruncated: true` | unit runTool | status `partial`, oorzaak `output-truncated`, artefact `truncated: true` | FR-013 |
 | 3.3 | Parser levert 2500 findings | unit | resultaat bevat 2000 findings, status `partial/findings-truncated`, artefact bevat alles | FR-013 |
-| 3.4 | Demo | e2e | D05, D06, D07 gevonden; strikte recall ≥ 6/18 | SC-003 |
+| 3.4 | Demo | e2e | D05, D06, D07 gevonden; strikte recall ≥ 8/18 | SC-003 |
 
 ## US4 Verifiable evidence integrity (P2)
 
@@ -89,9 +89,20 @@ npm run evidence:verify -- "$TESSERA_EVIDENCE_ROOT/<slug>-<runId>" --expect-root
 | 6.5 | `.npmrc` met `registry=http://127.0.0.1:9/` en `audit=false` | unit (args) + contract (npm) | npm audit draait in de geïsoleerde map, geen verbinding met de vijandige registry, kwetsbaarheden gerapporteerd |
 | 6.6 | `node_modules/.bin/license-checker` dat een markerbestand schrijft | unit | markerbestand bestaat na de audit niet |
 
+## Scenario 7: handtekening (User Story 6)
+
+| # | Gegeven | Dan | Testniveau | Verwacht |
+|---|---------|-----|------------|----------|
+| 7.1 | voltooide audit, publieke sleutel | `evidence:verify --pubkey` | unit + demo | `valid`, sleutel genoemd, exit 0 |
+| 7.2 | record gewijzigd en manifest met de hand herberekend | verify | unit | `invalid`, exit ≠ 0 (SC-007) |
+| 7.3 | geen handtekening / andere sleutel | verify | unit | `unsigned` / `unknown-key`, nooit `verified` (SC-008) |
+| 7.4 | rapport van een ondertekende audit | lezen | unit | sleutel, tijdstip en de regel "tijdstip niet onafhankelijk getijdstempeld" |
+| 7.5 | sleutelpad binnen de bundelroot | `signEvidence` | unit | geweigerd |
+| 7.6 | geen sleutel, `TESSERA_REQUIRE_SIGNATURE=1` | audit | integratie | uitkomst INCOMPLEET, niveau 0 |
+
 ## Release-gate (Definition of Done voor deze feature)
 
 1. `npm run verify` groen lokaal en in CI, inclusief de per-glob-coveragedrempels.
 2. `npm run test:tools` groen lokaal met alle tools aanwezig.
-3. `npm run demo`: D05–D07 gevonden, strikte recall ≥ 6/18, clean-app `complete` zonder nieuwe vals-positieven, `evidence:verify` exit 0 op beide bundels, secret sweep 0 treffers.
+3. `npm run demo`: D05–D07 gevonden, strikte recall ≥ 8/18, clean-app `complete` zonder nieuwe vals-positieven, `evidence:verify` exit 0 op beide bundels, secret sweep 0 treffers.
 4. Resultaten van punt 3 vastgelegd in de commit van stap 14 (principe X: gemeten, niet beweerd).

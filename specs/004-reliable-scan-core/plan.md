@@ -121,6 +121,9 @@ finally
 | FR-015 | runId per record, aparte bundel per run, verify `run-mismatch` | unit, integratie (twee runs) |
 | FR-016 | statusblok en tabel bovenaan het rapport | unit (rapport) |
 | FR-017 | één bundelmap met records, artefacten, manifest | unit, demo |
+| FR-018 | `signEvidence` (Ed25519, `signature.json`), sleutel buiten de bundelroot (R19) | unit (sign/verify, sleutel-in-root geweigerd), demo |
+| FR-019 | `SignatureStatus`, verify-exitcodes, nooit `verified` bij `unsigned`/`unknown-key` | unit (vier uitkomsten, SC-008) |
+| FR-020 | `computeAssuranceLevel`, vermelding in rapport | unit (rapport), integratie |
 
 ## Migratiepad
 
@@ -132,6 +135,7 @@ Elke stap is één commit volgens constitutie, Development Workflow (Branch Stra
 | 2 | `feat(evidence): redaction module` | `src/evidence/redact.ts` | unit FR-012, fixtures met de demo-secretvormen | C (security) |
 | 3 | `feat(evidence): evidence store with atomic publish` | `src/evidence/store.ts`, `hash.ts` | unit FR-005/006/011/015 (tmp-root) | C |
 | 4 | `feat(evidence): manifest, hash chain and verify CLI` | `manifest.ts`, `verify.ts`, `src/cli/verify-evidence.ts`, script `evidence:verify` | unit FR-009/010/017, tamper-matrix SC-004 | B |
+| 4b | `feat(evidence): sign manifest with local Ed25519 key` | `src/evidence/sign.ts`, `src/cli/evidence-keygen.ts`, `signature.json`, verify-uitbreiding, script `evidence:keygen` | unit FR-018/019, tamper + hermberekend manifest (SC-007), vier uitkomsten (SC-008), sleutel-in-root geweigerd | C (security) |
 | 5 | `feat(scan): runTool wrapper with injectable process runner` | `process-runner.ts`, `run-tool.ts`, `env.ts` | unit: ENOENT, timeout, afkapping, env-allowlist, geen shell | C (security) |
 | 6 | `refactor(workflow): run lifecycle with initAuditRun, fetchSource and cleanupRun` | vervangt `cloneRepository`; clone + rev-parse + probe via `runTool`; cleanup in `finally`; scans krijgen `source.repoPath` | unit fetchSource (nep-runner), integratie workflow; FR-008, FR-014 (deels) | B |
 | 7 | `fix(scan): npm audit via runTool with isolated config` | `runNpmAudit(run, source)`, policy, `settle` in workflow | unit FR-004; **demo: D05–D07 gevonden** | B |
@@ -174,12 +178,14 @@ Per constitutie II (testspecs eerst, aantoonbaar rood, dan implementatie):
 
 ## Buiten scope
 
-- Opslag-niveau-onveranderlijkheid, back-up en verwijderbeleid van evidence (R13, beslissing 1); digitale handtekening of tijdstempel van de root-hash.
+- Opslag-niveau-onveranderlijkheid, back-up en verwijderbeleid van evidence (R13, beslissing 1); onafhankelijk tijdstempel (RFC 3161), sleutelbewaring buiten het beheerdomein en externe verankering van de root-hash (assurance-niveau 2 en 3, `docs/assurance-roadmap.md`).
 - Heartbeats en kortere `startToClose` (#8), Temporal-netwerkbinding (#3), sandboxing van scanners, groottegrens op de werkmap.
 - Aansluiten van de overige domeinen (#9), SQL-injectiedetectie (D08), juiste ernst voor D04/D11, placeholder `crossValidate`/`mapToCompliance` (#19).
 - Evidence voor de goedkeuringsbeslissing (feature 002) en het rapport zelf in het manifest.
 
 ## Beslissingen van de gebruiker (2026-10-02)
+
+0. **Handtekening (FR-018..020)**: lokale Ed25519-sleutel voor de eerste versie; sterkere sleutelbewaring, tijdstempel en verankering staan in `docs/assurance-roadmap.md` (research R19).
 
 1. **Bewaring (FR-011)**: deels geleverd in deze feature (append-only schrijven, read-only permissies, `retainUntil`, verankerde root-hash). WORM-opslag voor `TESSERA_EVIDENCE_ROOT` is een aparte operationele stap en het rapport claimt niet meer dan dat.
 2. **Semgrep**: geen `--config auto`; `--metrics=off` met vaste packs (`p/javascript`, `p/nodejs`) en een eigen, versiebeheerde regelset als aparte vervolgfeature. Verwacht effect op recall: D11 eraf, D05–D07 erbij (research R6).

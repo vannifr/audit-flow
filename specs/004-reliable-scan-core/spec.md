@@ -116,6 +116,33 @@ reports for the secret value; it does not appear.
 
 ---
 
+### User Story 6 - Signed evidence (Priority: P2)
+
+A client or auditor wants to know who vouches for the evidence and that it has not been rewritten
+since. When an audit ends, the evidence manifest is signed with a key held by the framework
+operator, and verification reports whether the signature is valid and which key signed it. The
+first version uses a locally held key; stronger key custody follows in later versions.
+
+**Why this priority**: A manifest with only hashes proves internal consistency. Anyone with
+write access can recompute it. A signature ties the evidence to a key that others can check.
+
+**Independent Test**: Complete an audit, verify it, then change one record and recompute the
+manifest by hand. Verification fails because the signature no longer matches.
+
+**Acceptance Scenarios**:
+
+1. **Given** a completed audit, **When** verification runs with the published public key,
+   **Then** it reports the signature as valid and names the key.
+2. **Given** evidence whose manifest was recomputed after a change, **When** verification
+   runs, **Then** it reports the signature as invalid.
+3. **Given** evidence without a signature or verified with a different key, **When**
+   verification runs, **Then** it reports "unsigned" or "unknown key" and never "verified".
+4. **Given** a signed audit, **When** a reviewer reads the report, **Then** the report states
+   what was signed, by which key, and that the signing time is the signer's own clock and not
+   independently attested.
+
+---
+
 ### Edge Cases
 
 - A scanner produces no output but a success code. The status is completed and the empty output
@@ -163,9 +190,21 @@ reports for the secret value; it does not appear.
   evidence records and the manifest, so it can be handed to a client or auditor and verified
   there.
 
+- **FR-018**: The system MUST sign the evidence manifest of every completed or incomplete audit
+  with a signing key that is not stored inside the evidence set, and MUST record the signing
+  time and the key identity.
+- **FR-019**: Verification MUST report one of: valid signature, invalid signature, unsigned, or
+  unknown key, and MUST NOT report evidence as verified unless the signature is valid for a
+  key the verifier trusts.
+- **FR-020**: Reports MUST state the assurance level reached by the audit's evidence, derived
+  from what was actually signed and verified, never asserted by hand.
+
 **Delivery note (decided 2026-10-02)**: FR-011 is delivered in part by this feature: records are
 written once, protected against change by ordinary means, and carry a retention date; storage that
 even an administrator cannot alter is a separate operational step. Reports state this limit.
+FR-018 is delivered with a locally held key in this version. Key custody outside the operator's
+control, independent time attestation, and external anchoring are later assurance levels (see
+`docs/assurance-roadmap.md`) and reports state that limit.
 
 ### Key Entities
 
@@ -175,6 +214,7 @@ even an administrator cannot alter is a separate operational step. Reports state
   fingerprint.
 - **Finding**: A reported issue with severity, location, and a reference to its Evidence Record.
 - **Evidence Manifest**: The list of all Evidence Records of an Audit Run with fingerprints.
+- **Signature**: A signature over the manifest, with the signing time and the identity of the key.
 
 ## Success Criteria *(mandatory)*
 
@@ -192,3 +232,7 @@ even an administrator cannot alter is a separate operational step. Reports state
   returns zero matches.
 - **SC-006**: A reviewer can trace any finding to its raw output and source revision in under
   2 minutes.
+- **SC-007**: In a tamper test that modifies a record and recomputes the manifest, verification
+  rejects 100% of cases because the signature does not match.
+- **SC-008**: Verification never reports "verified" for unsigned evidence or an unknown key
+  (tested for each of the four outcomes).

@@ -146,6 +146,19 @@ Bestand `manifest.json` (0400) plus `SHA256SUMS`. Velden: zie `contracts/evidenc
 
 **Toestandsovergangen**: `absent` → `sealed` (geschreven en door `verifyEvidenceBundle` gecontroleerd) → bij de ontvanger `verified` of `failed` (per verificatie, niet opgeslagen). Er is geen her-verzegeling: een tweede `sealEvidence` op een verzegelde bundel geeft het bestaande resultaat terug als de bundel nog verifieert en faalt anders.
 
+## Signature
+
+| Veld | Type | Regel |
+|------|------|-------|
+| schema | `tessera.signature/v1` | vast |
+| alg | `ed25519` | vast |
+| keyId | sha256 hex | van de SPKI-DER van de publieke sleutel |
+| runId, rootHash, manifestSha256 | string | moeten overeenkomen met manifest en bundel |
+| signedAt | ISO-8601 UTC | klok van de ondertekenaar; niet extern getijdstempeld |
+| signature | base64 | over de payload uit `contracts/evidence-signature.ts` |
+
+Toestanden bij verificatie: `valid`, `invalid`, `unsigned`, `unknown-key`. Het assurance-niveau (0 of 1) wordt berekend uit hashcontrole en handtekeningstatus en staat in het rapport; het wordt nergens met de hand gezet.
+
 ## Toestandsvelden in de workflow (`AuditState`, additief)
 
 `scanners: ScannerStatusEntry[]`, `outcome?: AuditOutcome`, `revision?: string`, `evidenceRootHash?: string`. De bestaande queries (`status`, `findings`, `state`) blijven werken; `state` toont de nieuwe velden mee.
