@@ -38,13 +38,12 @@ steps:
   sonarqube:
     image: sonarsource/sonar-scanner-cli:latest
     environment:
-      SONAR_TOKEN:
-        from_secret: sonar_token
       SONAR_HOST_URL:
         from_secret: sonar_host_url
+      SONAR_TOKEN:
+        from_secret: sonar_token
     commands:
-      - |
-        sonar-scanner \
+      - sonar-scanner \
           -Dsonar.projectKey=audit-flow \
           -Dsonar.sources=src \
           -Dsonar.tests=src \
