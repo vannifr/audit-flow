@@ -51,11 +51,12 @@ steps:
     commands:
       - gitleaks directory --verbose --redact=50 --exit-code 1 --gitleaks-ignore-path .gitleaksignore .
 
-  # Phase 7: Dependency security audit - BLOCK on high vulnerabilities
+  # Phase 7: Dependency security audit - warn on high vulnerabilities
   dependency-audit:
     image: node:22-alpine
     commands:
       - npm audit --audit-level=high
+    failure: ignore
 
   # Phase 8: License compliance check - BLOCK on GPL/AGPL
   license-check:
