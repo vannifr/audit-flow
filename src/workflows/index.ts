@@ -24,6 +24,7 @@ import type {
 
 // Import activities
 const {
+  checkToolRequirements,
   cloneRepository,
   detectTechStack,
   generateScopeDocument,
@@ -85,8 +86,21 @@ export async function applicationAudit(input: AuditInput): Promise<AuditResult> 
   setHandler(stateQuery, () => state);
 
   try {
-    // ==================== FASE 0: DISCOVERY ====================
+    // ==================== FASE 0: TOOL CHECK ====================
     state.currentPhase = 'discovery';
+
+    // Check which tools are available
+    const toolStatus = await checkToolRequirements();
+    const missingRequired = toolStatus.filter(t => !t.installed && t.required);
+
+    if (missingRequired.length > 0) {
+      const missing = missingRequired.map(t => `${t.name}: ${t.installCommand}`).join('; ');
+      throw new Error(`Required tools missing: ${missing}`);
+    }
+
+    // Log available tools
+    const available = toolStatus.filter(t => t.installed).map(t => t.name);
+    console.log(`Available tools: ${available.join(', ')}`);
 
     // Clone repository
     const repoPath = await cloneRepository(input.repoUrl, workflowId);

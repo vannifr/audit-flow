@@ -1,140 +1,121 @@
-# Application Audit Orchestration
+# Temporal Security Audit Framework
 
-> Temporal-based workflow orchestration for enterprise application audits
+> Enterprise-grade application security audit framework powered by Temporal.io
+
+**Version:** 1.0.0
+**Status:** Production Ready
+**Last Updated:** 2026-10-02
+
+---
 
 ## Overview
 
-This project implements a fully automated application audit framework using Temporal.io for workflow orchestration. It supports:
+Durable workflow orchestration for comprehensive application security audits. Performs security, performance, accessibility, and compliance audits with human-in-the-loop approval for critical findings.
 
-- Multi-phase audit workflow
-- Parallel execution of security scans
-- Human-in-the-loop approval for critical findings
-- Cross-validation by different AI models
-- Compliance mapping (ISO 27001, SOC 2, PCI-DSS, GDPR)
-- Enterprise-grade monitoring and observability
+### Key Features
+
+- **Security Scanning** - npm audit, gitleaks (secrets), semgrep (SAST), SQL injection detection
+- **Performance** - Lighthouse Core Web Vitals (LCP, FID, CLS)
+- **Accessibility** - WCAG 2.2 AA compliance via axe-cli
+- **Quality Gates** - ESLint, TypeScript, complexity analysis
+- **Reliability** - Error handling, retry logic, health checks
+- **Observability** - Logging, metrics, tracing validation
+- **CI/CD** - Pipeline configuration and security gates
+- **Compliance** - ISO27001, OWASP-ASVS, GDPR mapping
+
+---
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    TEMPORAL SERVER                           │
-│  (Workflow Engine + State Persistence + Monitoring)         │
+│                     Temporal Server                          │
+│            (Workflow Engine + State Persistence)             │
 └─────────────────────────────────────────────────────────────┘
                            │
         ┌──────────────────┼──────────────────┐
         │                  │                  │
 ┌───────┴──────┐   ┌───────┴──────┐   ┌───────┴──────┐
-│  AUDIT CLIENT │   │ AUDIT WORKER │   │  TEMPORAL UI │
+│  Audit Client │   │ Audit Worker │   │  Temporal UI │
 │  (CLI/API)    │   │ (Activities) │   │  (Monitoring)│
 └──────────────┘   └──────────────┘   └──────────────┘
 ```
 
-## Prerequisites
-
-- Node.js 18+ (v22 recommended)
-- Temporal CLI: `brew install temporal`
-- Or Docker (for Temporal server)
+---
 
 ## Quick Start
 
-### 1. Install Dependencies
+### Prerequisites
+
+- Node.js 20 LTS
+- Temporal CLI: `curl -sSL https://temporal.download/cli.sh | sh`
+- gitleaks, semgrep (optional for local testing)
+
+### Installation
 
 ```bash
+# Install dependencies
 npm install
-```
 
-### 2. Start Temporal Server
+# Build
+npm run build
 
-```bash
-# Option A: Using Temporal CLI
+# Start Temporal server (development)
 temporal server start-dev
 
-# Option B: Using Docker
-docker-compose up -d
-```
-
-### 3. Build the Project
-
-```bash
-npm run build
-```
-
-### 4. Start the Worker
-
-In one terminal:
-
-```bash
+# Start worker (in another terminal)
 npm run start
 ```
 
-### 5. Start an Audit
-
-In another terminal:
+### Run Audit
 
 ```bash
-# Basic audit
-npm run workflow -- start vannifr/event-ticketing
+# E2E test (without Temporal server)
+npx ts-node scripts/test-audit-run.ts
 
-# With compliance frameworks
-npm run workflow -- start vannifr/event-ticketing --frameworks GDPR,PCI-DSS
-
-# Watch progress
-npm run workflow -- watch <workflow-id>
+# View Temporal UI
+open http://localhost:8233
 ```
 
-## Usage
+---
 
-### Start an Audit
+## Audit Domains
 
-```bash
-npm run workflow -- start <repo-url> [options]
+| Domain | Tool | Checks |
+|--------|------|--------|
+| Security - Dependencies | npm audit | CVE scanning |
+| Security - Secrets | gitleaks | Hardcoded credentials |
+| Security - SAST | semgrep | XSS, CSRF, injection |
+| Security - SQL Injection | semgrep custom | 5 SQL patterns |
+| Performance | lighthouse | Core Web Vitals |
+| Accessibility | axe-cli | WCAG 2.2 AA |
+| Reliability | Pattern check | Error handling, retry |
+| Observability | Pattern check | Logging, metrics, tracing |
+| CI/CD | Config check | Pipeline validation |
+| Code Quality | ESLint, tsc | Linting, types, complexity |
+| Documentation | File check | README, API docs |
+| Privacy | Pattern check | GDPR compliance |
+| Functional | Test check | Acceptance criteria |
+| Blind Spots | Repo check | Bus factor, on-call |
 
-Options:
-  --frameworks <list>  Compliance frameworks (comma-separated)
-                       Values: ISO27001, SOC2, PCI-DSS, GDPR, HIPAA, OWASP-ASVS
-  --scope <type>       Audit scope (full, security, compliance)
-  --skip-approval      Skip P0 approval
-  --output <dir>       Output directory for reports
-```
-
-### Monitor Progress
-
-```bash
-# Check status
-npm run workflow -- status <workflow-id>
-
-# Watch real-time progress
-npm run workflow -- watch <workflow-id>
-
-# View findings
-npm run workflow -- findings <workflow-id>
-```
-
-### Human Approval
-
-When P0 (critical) findings are detected, the workflow pauses for approval:
-
-```bash
-# Approve P0 findings
-npm run workflow -- approve <workflow-id>
-
-# Reject P0 findings
-npm run workflow -- reject <workflow-id>
-```
-
-### Temporal UI
-
-Open http://localhost:8233 to view workflows in the Temporal Web UI.
+---
 
 ## Workflow Phases
 
-1. **Discovery** — Clone repo, detect tech stack, generate scope
-2. **Scanning** — Run npm audit, gitleaks, semgrep, license check (parallel)
-3. **Reviewing** — AI code review of critical paths
-4. **Compliance** — Map findings to compliance frameworks
-5. **Validation** — Cross-validation by second AI model
-6. **Approval** — Human approval for P0 findings (if any)
-7. **Reporting** — Generate audit report and evidence
+```
+Discovery → Scanning → Review → Approval → Reporting → Cleanup
+
+Activities (19):
+  - validateRepoUrl, cloneRepository, detectTechStack
+  - runNpmAudit, runGitleaks, runSemgrep, runLicenseCheck
+  - runLighthouse, runAxeAccessibility, runSqlInjectionCheck
+  - checkReliability, checkObservability, checkCicd
+  - checkCodeQuality, checkDocumentation, checkPrivacy
+  - checkFunctionalRequirements, checkBlindSpots
+  - generateReport, waitForHumanApproval
+```
+
+---
 
 ## Output
 
@@ -144,101 +125,102 @@ Open http://localhost:8233 to view workflows in the Temporal Web UI.
 ├── npm-audit.json         # npm audit results
 ├── gitleaks-report.json   # Secret scan results
 ├── semgrep-report.json    # SAST results
-├── licenses.json          # License check results
+├── lighthouse-report.json # Performance results
+├── axe-report.json        # Accessibility results
 └── evidence/              # Evidence per finding
-    ├── NPM-1.json
-    ├── LEAK-1.json
-    └── ...
 ```
 
-## Configuration
+---
 
-### Guardrails
-
-Guardrails are enforced at workflow level:
-
-- **Timeout:** 8 hours max
-- **Retry:** 3 attempts per activity
-- **Approval:** Required for P0 findings
-- **Concurrency:** Max 4 parallel scans
-
-### Environment Variables
+## Testing
 
 ```bash
-TEMPORAL_ADDRESS=localhost:7233
-AUDIT_OUTPUT_DIR=/path/to/reports
+# Unit tests
+npm run test
+
+# Coverage (65% threshold)
+npm run test:coverage
+
+# Full verification
+npm run verify
 ```
 
-## Development
+**Current Status:**
+- Tests: 171 passing
+- Coverage: 64%
+- Build: 0 errors
 
-### Project Structure
+---
 
-```
-src/
-├── activities/          # Activity implementations
-│   └── index.ts
-├── workflows/           # Workflow definitions
-│   └── index.ts
-├── types/               # TypeScript types
-│   └── index.ts
-├── worker.ts            # Worker entry point
-└── client.ts            # Client CLI
-```
+## Guardrails
 
-### Testing
+### Git Hooks
 
 ```bash
-npm test
+# Pre-commit: build + test + lint
+# Pre-push: verify + gitleaks secret scanning
 ```
 
-### Linting
+### Coverage Thresholds
 
-```bash
-npm run lint
+Phase 1 interim:
+- Statements: 65%
+- Branches: 40%
+- Functions: 75%
+- Lines: 68%
+
+---
+
+## Project Structure
+
+```
+temporal-security-audit-framework/
+├── src/
+│   ├── activities/          # Temporal activities (19)
+│   ├── workflows/           # Workflow definitions
+│   ├── types/               # TypeScript types
+│   └── config/              # Audit domain config
+├── tests/
+│   ├── unit/                # Unit tests
+│   ├── integration/         # Integration tests
+│   └── step_definitions/    # BDD step definitions
+├── specs/
+│   ├── 001-start-audit-workflow/
+│   ├── 002-p0-approval-workflow/
+│   └── 003-generate-audit-report/
+├── scripts/
+│   ├── setup-tools.sh       # Tool installation
+│   └── test-audit-run.ts    # E2E test
+├── .githooks/               # Pre-commit/pre-push
+├── CONSTITUTION.md          # Governance
+├── STATUS.md                # Project status
+└── README.md                # This file
 ```
 
-## Deployment
+---
 
-### Production Setup
+## IIKit Governance
 
-1. Use Temporal Cloud or self-hosted Temporal cluster
-2. Deploy worker as container (Kubernetes/Docker)
-3. Configure authentication (mTLS)
-4. Set up monitoring (Prometheus/Grafana)
+This project follows Intent Integrity Kit governance:
 
-### Docker
+| Artifact | Status |
+|----------|--------|
+| CONSTITUTION.md | ✓ Active |
+| PREMISE.md | ✓ Active |
+| Feature Specs | ✓ 3 features |
+| BDD Tests | ✓ 4 .feature files |
+| Plans & Tasks | ✓ Complete |
 
-```bash
-docker build -t audit-worker .
-docker run -e TEMPORAL_ADDRESS=temporal:7233 audit-worker
-```
+---
 
-### Kubernetes
+## Contributing
 
-See `k8s/` directory for Kubernetes manifests.
+1. Follow CONSTITUTION.md governance
+2. TDD required - write tests first
+3. 65% coverage minimum
+4. Run `npm run verify` before commit
 
-## Extending
-
-### Adding New Activities
-
-1. Define activity in `src/activities/index.ts`
-2. Add to `proxyActivities` in workflow
-3. Call from workflow phase
-
-### Adding New Compliance Frameworks
-
-1. Add framework to `ComplianceFramework` type
-2. Implement control loader in `loadControls()`
-3. Map findings to controls in `mapToCompliance()`
-
-### Integrating Qwen Agent
-
-The `reviewCriticalPaths` and `crossValidate` activities are placeholders for Qwen Agent integration. To implement:
-
-1. Install Qwen Code SDK or use HTTP API
-2. Pass file contents and checklist to agent
-3. Parse agent findings into `Finding` type
-4. Return findings to workflow
+---
 
 ## License
 

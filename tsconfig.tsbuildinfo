@@ -1,1 +1,1 @@
-{"root":["./src/client.ts","./src/worker.ts","./src/activities/index.ts","./src/types/index.ts","./src/workflows/index.ts"],"version":"5.9.3"}
+{"root":["./src/client.ts","./src/config.ts","./src/errors.ts","./src/logger.ts","./src/progress.ts","./src/worker.ts","./src/activities/index.ts","./src/config/audit-domains.ts","./src/types/index.ts","./src/workflows/index.ts"],"version":"5.9.3"}

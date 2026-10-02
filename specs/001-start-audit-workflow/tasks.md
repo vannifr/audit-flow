@@ -45,9 +45,9 @@
 - [x] T007 Define all TypeScript types in src/types/index.ts (Audit, Finding, TechStack, etc.)
 - [x] T008 [P] Create workflow definition skeleton in src/workflows/index.ts
 - [x] T009 [P] Create activities skeleton in src/activities/index.ts
-- [ ] T010 Configure environment variables management
-- [ ] T011 Setup structured logging (replace console.log with pino)
-- [ ] T012 Create error handling utilities for ApplicationFailure
+- [x] T010 Configure environment variables management
+- [x] T011 Setup structured logging (replace console.log with pino)
+- [x] T012 Create error handling utilities for ApplicationFailure
 
 **Checkpoint**: Foundation ready - user story implementation can now begin
 
@@ -65,19 +65,19 @@
 
 > **NOTE: Write these tests FIRST, ensure they FAIL before implementation**
 
-- [ ] T013 [P] [US1] Create BDD step definitions for start-audit.feature in tests/features/step_definitions/
-- [ ] T014 [P] [US1] Create unit tests for cloneRepository activity in tests/unit/activities.test.ts
-- [ ] T015 [P] [US1] Create unit tests for detectTechStack activity in tests/unit/activities.test.ts
-- [ ] T016 [P] [US1] Create integration test for workflow execution in tests/integration/workflow.test.ts
+- [x] T013 [P] [US1] Create BDD step definitions for start-audit.feature in tests/features/step_definitions/
+- [x] T014 [P] [US1] Create unit tests for cloneRepository activity in tests/unit/activities.test.ts
+- [x] T015 [P] [US1] Create unit tests for detectTechStack activity in tests/unit/activities.test.ts
+- [x] T016 [P] [US1] Create integration test for workflow execution in tests/integration/workflow.test.ts
 
 ### Implementation for User Story 1
 
 - [x] T017 [P] [US1] Implement cloneRepository activity in src/activities/index.ts
 - [x] T018 [P] [US1] Implement detectTechStack activity in src/activities/index.ts
 - [x] T019 [US1] Implement generateScopeDocument activity in src/activities/index.ts
-- [ ] T020 [US1] Add repository URL validation in client.ts
-- [ ] T021 [US1] Implement workflow Discovery phase in src/workflows/index.ts
-- [ ] T022 [US1] Add CLI command `start` with options parsing in src/client.ts
+- [x] T020 [US1] Add repository URL validation in client.ts
+- [x] T021 [US1] Implement workflow Discovery phase in src/workflows/index.ts
+- [x] T022 [US1] Add CLI command `start` with options parsing in src/client.ts
 
 **Checkpoint**: At this point, User Story 1 should be fully functional - auditors can start audits
 
@@ -93,15 +93,15 @@
 
 ### Tests for User Story 2
 
-- [ ] T023 [P] [US2] Create unit tests for compliance framework parsing in tests/unit/client.test.ts
-- [ ] T024 [P] [US2] Create integration test for framework mapping in tests/integration/compliance.test.ts
+- [x] T023 [P] [US2] Create unit tests for compliance framework parsing in tests/unit/client.test.ts
+- [x] T024 [P] [US2] Create integration test for framework mapping in tests/integration/compliance.test.ts
 
 ### Implementation for User Story 2
 
 - [x] T025 [P] [US2] Implement mapToCompliance activity in src/activities/index.ts
-- [ ] T026 [US2] Add compliance framework CLI option `--frameworks` in src/client.ts
-- [ ] T027 [US2] Add scope type CLI option `--scope` in src/client.ts
-- [ ] T028 [US2] Implement workflow Compliance phase in src/workflows/index.ts
+- [x] T026 [US2] Add compliance framework CLI option `--frameworks` in src/client.ts
+- [x] T027 [US2] Add scope type CLI option `--scope` in src/client.ts
+- [x] T028 [US2] Implement workflow Compliance phase in src/workflows/index.ts
 
 **Checkpoint**: At this point, User Story 2 should be fully functional - compliance frameworks configurable
 
@@ -117,15 +117,15 @@
 
 ### Tests for User Story 3
 
-- [ ] T029 [P] [US3] Create unit tests for workflow queries in tests/unit/workflow.test.ts
-- [ ] T030 [P] [US3] Create integration test for watch command in tests/integration/client.test.ts
+- [x] T029 [P] [US3] Create unit tests for workflow queries in tests/unit/workflow.test.ts
+- [x] T030 [P] [US3] Create integration test for watch command in tests/integration/client.test.ts
 
 ### Implementation for User Story 3
 
 - [x] T031 [US3] Implement statusQuery in src/workflows/index.ts
 - [x] T032 [US3] Implement findingsQuery in src/workflows/index.ts
-- [ ] T033 [US3] Add CLI command `watch` in src/client.ts
-- [ ] T034 [US3] Add CLI command `status` in src/client.ts
+- [x] T033 [US3] Add CLI command `watch` in src/client.ts
+- [x] T034 [US3] Add CLI command `status` in src/client.ts
 
 **Checkpoint**: At this point, User Story 3 should be fully functional - audit progress monitorable
 
@@ -141,12 +141,12 @@
 
 ### Tests for User Story 4
 
-- [ ] T035 [P] [US4] Create unit tests for findings filtering in tests/unit/client.test.ts
+- [x] T035 [P] [US4] Create unit tests for findings filtering in tests/unit/client.test.ts
 
 ### Implementation for User Story 4
 
-- [ ] T036 [US4] Add CLI command `findings` in src/client.ts
-- [ ] T037 [US4] Add findings filtering by severity in src/client.ts
+- [x] T036 [US4] Add CLI command `findings` in src/client.ts
+- [x] T037 [US4] Add findings filtering by severity in src/client.ts
 
 **Checkpoint**: At this point, User Story 4 should be fully functional - findings viewable
 
@@ -160,10 +160,10 @@
 
 ### Tests for Security Scans
 
-- [ ] T038 [P] Create unit tests for npm audit activity in tests/unit/activities.test.ts
-- [ ] T039 [P] Create unit tests for gitleaks activity in tests/unit/activities.test.ts
-- [ ] T040 [P] Create unit tests for semgrep activity in tests/unit/activities.test.ts
-- [ ] T041 [P] Create unit tests for license check activity in tests/unit/activities.test.ts
+- [x] T038 [P] Create unit tests for npm audit activity in tests/unit/activities.test.ts
+- [x] T039 [P] Create unit tests for gitleaks activity in tests/unit/activities.test.ts
+- [x] T040 [P] Create unit tests for semgrep activity in tests/unit/activities.test.ts
+- [x] T041 [P] Create unit tests for license check activity in tests/unit/activities.test.ts
 
 ### Implementation for Security Scans
 
@@ -171,7 +171,7 @@
 - [x] T043 [P] Implement runGitleaks activity in src/activities/index.ts
 - [x] T044 [P] Implement runSemgrep activity in src/activities/index.ts
 - [x] T045 [P] Implement runLicenseCheck activity in src/activities/index.ts
-- [ ] T046 Implement workflow Scanning phase (parallel execution) in src/workflows/index.ts
+- [x] T046 Implement workflow Scanning phase (parallel execution) in src/workflows/index.ts
 
 **Checkpoint**: At this point, all security scans should work in parallel
 
@@ -185,14 +185,14 @@
 
 ### Tests for Report Generation
 
-- [ ] T047 [P] Create unit tests for report generation in tests/unit/activities.test.ts
-- [ ] T048 [P] Create integration test for evidence collection in tests/integration/report.test.ts
+- [x] T047 [P] Create unit tests for report generation in tests/unit/activities.test.ts
+- [x] T048 [P] Create integration test for evidence collection in tests/integration/report.test.ts
 
 ### Implementation for Report Generation
 
 - [x] T049 Implement generateReport activity in src/activities/index.ts
 - [x] T050 Implement cleanup activity in src/activities/index.ts
-- [ ] T051 Implement workflow Reporting phase in src/workflows/index.ts
+- [x] T051 Implement workflow Reporting phase in src/workflows/index.ts
 
 **Checkpoint**: At this point, reports should be generated with evidence
 
@@ -202,14 +202,14 @@
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] T052 [P] Add input validation for all CLI commands
-- [ ] T053 [P] Add error messages with actionable guidance
-- [ ] T054 [P] Add progress indicators for long-running operations
-- [ ] T055 Code cleanup and refactoring
-- [ ] T056 [P] Add unit tests for helper functions in tests/unit/helpers.test.ts
-- [ ] T057 [P] Add integration tests for error scenarios in tests/integration/errors.test.ts
-- [ ] T058 Run quickstart.md validation scenarios
-- [ ] T059 Add coverage threshold enforcement (80%+)
+- [x] T052 [P] Add input validation for all CLI commands
+- [x] T053 [P] Add error messages with actionable guidance
+- [x] T054 [P] Add progress indicators for long-running operations
+- [x] T055 Code cleanup and refactoring
+- [x] T056 [P] Add unit tests for helper functions in tests/unit/helpers.test.ts
+- [x] T057 [P] Add integration tests for error scenarios in tests/integration/errors.test.ts
+- [x] T058 Run quickstart.md validation scenarios
+- [x] T059 Add coverage threshold enforcement (80%+)
 
 ---
 

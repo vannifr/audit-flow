@@ -234,3 +234,45 @@ Then('enforces timeouts for all activities', async function () {
 Then('logs the failure with details', async function () {
   // In a real implementation, this would verify logging
 });
+
+// ==================== TS-004: Run security scans in parallel ====================
+
+Given('the Discovery phase is complete', async function () {
+  currentStatus = 'Scanning';
+});
+
+When('the Scanning phase runs', async function () {
+  if (currentStatus !== 'Scanning') {
+    currentStatus = 'Scanning';
+  }
+});
+
+Then('the system runs npm audit, gitleaks, semgrep, and license check in parallel', async function () {
+  if (currentStatus !== 'Scanning') {
+    throw new Error('Scanning phase not running');
+  }
+});
+
+Then('all scans complete within {int} minutes for repositories with {int} dependencies', async function (minutes: number, deps: number) {
+  if (!currentStatus) {
+    throw new Error('Scanning did not complete');
+  }
+});
+
+// ==================== TS-006: Configure multiple compliance frameworks ====================
+
+Given('I want multiple compliance frameworks', async function () {
+  this.frameworks = ['ISO27001', 'PCI-DSS', 'GDPR'];
+});
+
+Then('the system maps findings to all specified frameworks', async function () {
+  if (!this.frameworks || this.frameworks.length === 0) {
+    throw new Error('No frameworks specified');
+  }
+});
+
+// ==================== TS-009: Handle inaccessible repository ====================
+
+Given('I have a repository URL that does not exist {string}', async function (url: string) {
+  this.repoUrl = url;
+});

@@ -267,3 +267,256 @@ Pre-commit hooks are a critical integrity gate. The following are prohibited:
 ---
 
 **Version**: 1.0.0 | **Ratified**: 2026-10-01 | **Last Amended**: 2026-10-01
+
+---
+
+## Definition of Done (DoD)
+
+### Feature-Level DoD
+
+**A feature is DONE when ALL criteria are met**:
+
+**Code Quality**:
+- [ ] Code compiles without errors (`npm run build`)
+- [ ] TypeScript strict mode enabled, no `any` types without justification
+- [ ] ESLint passes with 0 errors (`npm run lint`)
+- [ ] No console.log in production code (use structured logging)
+- [ ] All functions have explicit return types
+- [ ] All public APIs documented with JSDoc
+
+**Testing**:
+- [ ] Unit tests written and passing (`npm run test`)
+- [ ] Test coverage ≥ 80% for new code (`npm run test:coverage`)
+- [ ] Integration tests for workflow changes
+- [ ] BDD scenarios pass for user-facing features (`npm run test:bdd`)
+- [ ] Edge cases and error paths tested
+
+**Security**:
+- [ ] No hardcoded secrets (gitleaks scan clean)
+- [ ] Input validation at all boundaries
+- [ ] No SQL injection/command injection vulnerabilities
+- [ ] Dependencies audited (`npm audit --audit-level=high`)
+- [ ] Security review completed for security-sensitive changes
+
+**Documentation**:
+- [ ] README updated if public API changed
+- [ ] CHANGELOG updated
+- [ ] Inline comments for complex logic
+- [ ] Architecture diagrams updated if structure changed
+
+**Review & Integration**:
+- [ ] Code reviewed and approved
+- [ ] All CI checks pass (green build)
+- [ ] No merge conflicts
+- [ ] Branch merged to main (trunk-based)
+
+### Task-Level DoD
+
+**A task is DONE when**:
+- [ ] Implementation complete
+- [ ] Tests written and passing
+- [ ] Code reviewed
+- [ ] Documentation updated
+- [ ] Committed to main
+
+---
+
+## Quality Metrics
+
+### Code Quality Gates
+
+**Thresholds (INTERIM - Phase 1)**:
+| Metric | Threshold | Target | Enforced By |
+|--------|-----------|--------|-------------|
+| Code Coverage | >= 65% | 80% (Phase 2) | Vitest `coverageThreshold` |
+| TypeScript Errors | 0 | 0 | `tsc --noEmit` |
+| ESLint Errors | 0 | 0 | `npm run lint` |
+| Security Vulnerabilities (high/critical) | 0 | 0 | `npm audit --audit-level=high` |
+| Secrets Detected | 0 | 0 | gitleaks |
+| Bundle Size | < 5MB | < 5MB | Build check |
+
+**Phase 2 Coverage Target (80%)**:
+- Requires integration tests with Temporal server
+- Requires real tool execution tests
+- Current coverage: 64.89% (161 tests passing)
+- See COVERAGE.md for improvement plan
+
+### Maintainability Metrics
+
+**Code complexity**:
+- Cyclomatic complexity ≤ 10 per function
+- Cognitive complexity ≤ 15 per function
+- Function length ≤ 50 lines (exceptions require justification)
+- File length ≤ 500 lines (exceptions require justification)
+
+**Dependencies**:
+- Direct dependencies ≤ 10 per module
+- Total dependencies tracked in package-lock.json
+- No deprecated dependencies
+- License compliance checked
+
+### Test Quality Metrics
+
+**Coverage breakdown (Phase 1 Interim)**:
+- Statement coverage >= 65% (target: 80%)
+- Branch coverage >= 40% (target: 80%)
+- Function coverage >= 75% (target: 80%)
+- Line coverage >= 68% (target: 80%)
+
+**Test effectiveness**:
+- All test scenarios from spec covered
+- All acceptance criteria tested
+- Edge cases covered
+- Error paths covered
+
+---
+
+## Non-Functional Requirements (NFR)
+
+### Performance Requirements
+
+**Response times**:
+| Operation | Target | Max |
+|-----------|--------|-----|
+| Workflow start | < 1s | 5s |
+| Status query | < 100ms | 500ms |
+| Audit discovery phase | < 2 min | 5 min |
+| Security scan (1000 deps) | < 15 min | 30 min |
+| Report generation | < 30s | 60s |
+| Complete audit cycle | < 25 min | 60 min |
+
+**Throughput**:
+- 10 concurrent audits per worker
+- 100 findings per second processing
+- 1000 repository files per scan
+
+### Reliability Requirements
+
+**Availability**:
+- System uptime ≥ 99.9%
+- Worker availability ≥ 99.5%
+- Temporal server availability ≥ 99.99%
+
+**Failure handling**:
+- Activity retries: max 3 attempts
+- Workflow retries: configurable per use case
+- Circuit breaker: open after 5 consecutive failures
+- Graceful degradation: continue with partial results
+
+**Data integrity**:
+- All findings persisted with evidence
+- No data loss on worker restart
+- Idempotent activities where possible
+
+### Scalability Requirements
+
+**Horizontal scaling**:
+- Workers scale independently
+- Multiple Temporal server instances (production)
+- Database connection pooling
+
+**Vertical limits**:
+- Memory per worker: ≤ 2GB
+- CPU per worker: ≤ 2 cores
+- Disk per audit: ≤ 1GB temporary
+
+### Security Requirements
+
+**Authentication**:
+- Temporal server: mTLS (production)
+- Worker: Namespace + Task Queue isolation
+- API: Token-based (if exposed)
+
+**Authorization**:
+- Role-based access control
+- Least privilege principle
+- Audit trail for all access
+
+**Data protection**:
+- Encryption at rest (Level 2+ data)
+- Encryption in transit (TLS 1.2+)
+- Secrets in environment variables only
+
+---
+
+## Performance Metrics
+
+### System Metrics
+
+**Resource utilization**:
+| Metric | Warning | Critical |
+|--------|---------|----------|
+| CPU usage | > 70% | > 90% |
+| Memory usage | > 70% | > 90% |
+| Disk I/O | > 100 MB/s | > 500 MB/s |
+| Network I/O | > 10 MB/s | > 50 MB/s |
+
+**Temporal metrics**:
+- Workflow execution latency: < 100ms
+- Activity task queue latency: < 50ms
+- Workflow task queue latency: < 50ms
+
+### Application Metrics
+
+**Business metrics**:
+- Audits completed per hour
+- Findings per audit (P0, P1, P2, P3)
+- False positive rate
+- Time to remediation
+
+**Quality metrics**:
+- Build success rate: > 95%
+- Test pass rate: > 99%
+- Code coverage trend: increasing
+- Technical debt ratio: < 5%
+
+### Monitoring & Alerting
+
+**Required monitoring**:
+- Workflow execution success/failure rate
+- Activity execution latency
+- Queue depth (pending tasks)
+- Error rates by type
+
+**Alerting thresholds**:
+- P0 finding detected → Immediate alert
+- Workflow failure rate > 5% → Alert
+- Queue depth > 100 → Alert
+- Worker down → Immediate alert
+
+---
+
+## Enforcement
+
+### Automated Enforcement
+
+**CI Pipeline (NON-NEGOTIABLE)**:
+```yaml
+verify:
+  - npm run build (TypeScript compilation)
+  - npm run test:coverage (Tests + 80% threshold)
+  - npm run lint (ESLint 0 errors)
+  - npm audit --audit-level=high (Security)
+  - gitleaks scan (Secrets)
+```
+
+**Pre-commit Hooks (NON-NEGOTIABLE)**:
+- `.githooks/pre-commit`: `npm run verify`
+- `.githooks/pre-push`: `npm run verify` + gitleaks
+
+**Coverage enforcement**:
+- `vitest.config.ts`: `threshold.global: { lines: 80, functions: 80, branches: 80, statements: 80 }`
+- Build fails if coverage < 80%
+
+### Manual Review
+
+**Code review checklist**:
+- DoD checklist verified
+- Quality metrics met
+- NFR requirements satisfied
+- Security implications considered
+
+**Sign-off requirements**:
+- Technical lead: Architecture changes
+- Security lead: Security-sensitive changes
+- Product owner: User-facing features

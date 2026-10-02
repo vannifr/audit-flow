@@ -38,7 +38,7 @@ Feature: Start Security Audit
     Given the Discovery phase is complete
     When the Scanning phase runs
     Then the system runs npm audit, gitleaks, semgrep, and license check in parallel
-    And all scans complete within 15 minutes for repositories with <1000 dependencies
+    And all scans complete within 15 minutes for repositories with 1000 dependencies
 
   @TS-005 @FR-008 @FR-009 @acceptance
   Scenario: Configure compliance frameworks

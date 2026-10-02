@@ -2,6 +2,7 @@
 
 import { Connection, Client } from '@temporalio/client';
 import { applicationAudit, p0ApprovalSignal, statusQuery, findingsQuery } from './workflows';
+import { validateRepoUrl } from './activities';
 import type { AuditInput, AuditResult, AuditStatus, Finding } from './types';
 
 // CLI interface
@@ -42,6 +43,14 @@ async function getClient(): Promise<Client> {
 }
 
 async function startAudit(repoUrl: string, options: string[]) {
+  // Validate repository URL before starting workflow
+  try {
+    validateRepoUrl(repoUrl);
+  } catch (error: any) {
+    console.error(`Error: ${error.message}`);
+    process.exit(1);
+  }
+
   const client = await getClient();
 
   // Parse options

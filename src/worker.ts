@@ -2,6 +2,7 @@
 
 import { Worker } from '@temporalio/worker';
 import * as activities from './activities';
+import logger from './logger';
 
 async function run() {
   // Create worker
@@ -13,15 +14,15 @@ async function run() {
     maxConcurrentWorkflowTaskExecutions: 10,
   });
 
-  console.log('Starting Audit Worker...');
-  console.log('Task Queue: audit');
-  console.log('Press Ctrl+C to stop');
+  logger.info('Starting Audit Worker...');
+  logger.info({ taskQueue: 'audit' }, 'Worker configured');
+  logger.info('Press Ctrl+C to stop');
 
   // Run worker
   await worker.run();
 }
 
 run().catch((err) => {
-  console.error('Worker failed:', err);
+  logger.error({ error: err }, 'Worker failed');
   process.exit(1);
 });

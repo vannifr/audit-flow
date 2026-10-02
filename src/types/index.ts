@@ -51,7 +51,9 @@ export type FindingCategory =
   | 'security-data'
   | 'security-config'
   | 'security-dependencies'
+  | 'security-code-review'
   | 'performance'
+  | 'accessibility'
   | 'reliability'
   | 'observability'
   | 'testing'
@@ -59,7 +61,7 @@ export type FindingCategory =
   | 'compliance';
 
 export interface Evidence {
-  type: 'code-snippet' | 'scan-output' | 'config' | 'log' | 'screenshot' | 'curl';
+  type: 'code-snippet' | 'scan-output' | 'config' | 'log' | 'screenshot' | 'curl' | 'code-review';
   file?: string;
   line?: number;
   content: string;

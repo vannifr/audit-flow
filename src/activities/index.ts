@@ -4,6 +4,7 @@ import {
   Context,
   ApplicationFailure,
 } from '@temporalio/activity';
+import logger from '../logger';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import {
@@ -26,6 +27,69 @@ import type {
 } from '../types';
 
 const execAsync = promisify(exec);
+
+// ==================== TOOL REQUIREMENTS ACTIVITY ====================
+
+export interface ToolStatus {
+  name: string;
+  installed: boolean;
+  version?: string;
+  required: boolean;
+  installCommand?: string;
+}
+
+const TOOL_REQUIREMENTS: Record<string, { required: boolean; installCommand: string }> = {
+  npm: { required: true, installCommand: 'Install Node.js from https://nodejs.org' },
+  git: { required: true, installCommand: 'Install from https://git-scm.com' },
+  gitleaks: { required: false, installCommand: 'go install github.com/gitleaks/gitleaks/v8@latest' },
+  semgrep: { required: false, installCommand: 'pip install semgrep OR brew install semgrep' },
+};
+
+/**
+ * Check which audit tools are installed and available
+ * Should be called at the start of an audit workflow
+ */
+export async function checkToolRequirements(): Promise<ToolStatus[]> {
+  const results: ToolStatus[] = [];
+
+  for (const [tool, config] of Object.entries(TOOL_REQUIREMENTS)) {
+    try {
+      const { stdout } = await execAsync(`${tool} --version`, { timeout: 5000 });
+      const version = stdout.trim().split('\n')[0];
+      results.push({
+        name: tool,
+        installed: true,
+        version,
+        required: config.required,
+      });
+      logger.info({ tool, version }, 'Tool available');
+    } catch {
+      results.push({
+        name: tool,
+        installed: false,
+        required: config.required,
+        installCommand: config.installCommand,
+      });
+      logger.warn({ tool, required: config.required }, 'Tool not found');
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Get list of missing required tools
+ */
+export function getMissingRequiredTools(status: ToolStatus[]): ToolStatus[] {
+  return status.filter(t => !t.installed && t.required);
+}
+
+/**
+ * Get list of missing optional tools
+ */
+export function getMissingOptionalTools(status: ToolStatus[]): ToolStatus[] {
+  return status.filter(t => !t.installed && !t.required);
+}
 
 // ==================== REPOSITORY ACTIVITIES ====================
 
@@ -87,7 +151,7 @@ export async function cloneRepository(
       gitProcess.on('error', reject);
     });
 
-    console.log(`Cloned repository to ${repoPath}`);
+    logger.info({ repoPath }, 'Repository cloned successfully');
 
     return repoPath;
   } catch (error) {
@@ -167,11 +231,11 @@ export async function detectTechStack(repoPath: string): Promise<TechStack> {
     // Check for PII patterns
     await detectPII(repoPath, techStack);
 
-    console.log(`Detected tech stack: ${JSON.stringify(techStack)}`);
+    logger.info({ techStack }, 'Tech stack detected');
 
     return techStack;
   } catch (error) {
-    console.error(`Error detecting tech stack: ${error}`);
+    logger.error({ error }, 'Error detecting tech stack');
     return techStack;
   }
 }
@@ -311,10 +375,10 @@ export async function runNpmAudit(
       }
     }
 
-    console.log(`npm audit found ${findings.length} vulnerabilities`);
+    logger.info({ count: findings.length }, 'npm audit completed');
   } catch (error) {
     // npm audit exits with non-zero if vulnerabilities found
-    console.warn(`npm audit: ${error}`);
+    logger.warn({ error: String(error) }, 'npm audit encountered issues');
   }
 
   return findings;
@@ -332,11 +396,19 @@ export async function runGitleaks(
   );
 
   try {
-    // Run gitleaks
-    await execAsync(
-      `gitleaks git --source ${repoPath} --report-path ${outputPath} --format json`,
-      { timeout: 120000 }
-    );
+    // Run gitleaks (use directory scan, not git history)
+    // Note: gitleaks exits with code 1 if leaks found, so we catch that
+    let stdout = '';
+    try {
+      const result = await execAsync(
+        `gitleaks directory ${repoPath} --report-path ${outputPath} --report-format json`,
+        { timeout: 120000 }
+      );
+      stdout = result.stdout;
+    } catch (error: any) {
+      // gitleaks exits with code 1 if leaks found - that's OK
+      stdout = error.stdout || '';
+    }
 
     // Read report
     if (existsSync(outputPath)) {
@@ -371,9 +443,9 @@ export async function runGitleaks(
       }
     }
 
-    console.log(`gitleaks found ${findings.length} secrets`);
+    logger.info({ count: findings.length }, 'gitleaks scan completed');
   } catch (error) {
-    console.warn(`gitleaks: ${error}`);
+    logger.warn({ error: String(error) }, 'gitleaks encountered issues');
   }
 
   return findings;
@@ -391,9 +463,17 @@ export async function runSemgrep(
   );
 
   try {
-    // Run semgrep
+    // Run semgrep with custom SQL injection rules + auto config
+    const customRulesPath = '/tmp/sql-injection-rules.yaml';
+    
+    // Check if custom rules exist, otherwise use auto
+    let configFlag = '--config=auto';
+    if (existsSync(customRulesPath)) {
+      configFlag = `--config=auto --config=${customRulesPath}`;
+    }
+
     await execAsync(
-      `semgrep --config=auto --json --output ${outputPath} ${repoPath}`,
+      `semgrep ${configFlag} --json --output ${outputPath} ${repoPath}`,
       { timeout: 180000 }
     );
 
@@ -431,9 +511,9 @@ export async function runSemgrep(
       }
     }
 
-    console.log(`semgrep found ${findings.length} issues`);
+    logger.info({ count: findings.length }, 'semgrep scan completed');
   } catch (error) {
-    console.warn(`semgrep: ${error}`);
+    logger.warn({ error: String(error) }, 'semgrep encountered issues');
   }
 
   return findings;
@@ -465,9 +545,16 @@ export async function runLicenseCheck(
       const problematicLicenses = ['GPL', 'AGPL', 'LGPL', 'GPL-3.0', 'AGPL-3.0'];
 
       for (const [name, info] of Object.entries<any>(report)) {
+        // Handle licenses as array or string
+        const licenses = Array.isArray(info.licenses)
+          ? info.licenses
+          : typeof info.licenses === 'string'
+            ? [info.licenses]
+            : [];
+
         if (
           problematicLicenses.some(lic =>
-            info.licenses?.some((l: string) => l.includes(lic))
+            licenses.some((l: string) => l.includes(lic))
           )
         ) {
           findings.push({
@@ -497,9 +584,9 @@ export async function runLicenseCheck(
       }
     }
 
-    console.log(`license check found ${findings.length} violations`);
+    logger.info({ count: findings.length }, 'license check completed');
   } catch (error) {
-    console.warn(`license check: ${error}`);
+    logger.warn({ error: String(error) }, 'license check encountered issues');
   }
 
   return findings;
@@ -514,17 +601,91 @@ export async function reviewCriticalPaths(
 ): Promise<Finding[]> {
   const findings: Finding[] = [];
 
-  // This would integrate with Qwen Agent for AI code review
-  // For now, return placeholder findings
+  logger.info({ criticalPaths, checklist }, 'Reviewing critical paths');
 
-  console.log(
-    `Reviewing critical paths: ${criticalPaths.join(', ')}`
-  );
+  // Scan files in critical paths for security patterns
+  const patterns = [
+    { pattern: /password\s*[=:]\s*['"]\w+['"]/gi, name: 'Hardcoded password', severity: 'P0' as const },
+    { pattern: /api[_-]?key\s*[=:]\s*['"][^'"]+['"]/gi, name: 'Hardcoded API key', severity: 'P0' as const },
+    { pattern: /secret\s*[=:]\s*['"][^'"]+['"]/gi, name: 'Hardcoded secret', severity: 'P0' as const },
+    { pattern: /eval\s*\(/g, name: 'eval() usage', severity: 'P1' as const },
+    { pattern: /innerHTML\s*=/g, name: 'innerHTML assignment', severity: 'P1' as const },
+    { pattern: /document\.write\s*\(/g, name: 'document.write() usage', severity: 'P1' as const },
+  ];
 
-  // Placeholder: In real implementation, this would call Qwen Agent
-  // via the Qwen Code SDK or HTTP API
+  // Find matching files
+  for (const pathPattern of criticalPaths) {
+    try {
+      const files = await findMatchingFiles(repoPath, pathPattern);
 
+      for (const file of files) {
+        const content = readFileSync(file, 'utf-8');
+        const relativePath = file.replace(repoPath, '');
+
+        for (const { pattern, name, severity } of patterns) {
+          const matches = content.match(pattern);
+          if (matches) {
+            findings.push({
+              id: `REVIEW-${findings.length + 1}`,
+              title: name,
+              description: `Found ${matches.length} occurrence(s) in ${relativePath}`,
+              severity,
+              category: 'security-code-review',
+              evidence: [{
+                type: 'code-review',
+                file: relativePath,
+                content: matches.slice(0, 3).join('\n'),
+                tool: 'code-review',
+                timestamp: new Date(),
+              }],
+              remediation: {
+                description: `Review and fix ${name.toLowerCase()} issues`,
+                effort: 'hours',
+                priority: severity === 'P0' ? 'immediate' : 'short-term',
+              },
+              verified: false,
+              createdAt: new Date(),
+            });
+          }
+        }
+      }
+    } catch (error) {
+      logger.warn({ error: String(error), pathPattern }, 'Failed to scan path');
+    }
+  }
+
+  logger.info({ count: findings.length }, 'Code review completed');
   return findings;
+}
+
+async function findMatchingFiles(basePath: string, pattern: string): Promise<string[]> {
+  const results: string[] = [];
+
+  async function scan(dir: string): Promise<void> {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+
+      if (entry.isDirectory()) {
+        if (!entry.name.startsWith('.') && entry.name !== 'node_modules') {
+          await scan(fullPath);
+        }
+      } else if (entry.isFile() && /\.(js|ts|jsx|tsx)$/.test(entry.name)) {
+        if (fullPath.toLowerCase().includes(pattern.toLowerCase())) {
+          results.push(fullPath);
+        }
+      }
+    }
+  }
+
+  try {
+    await scan(basePath);
+  } catch (error) {
+    // Ignore scan errors
+  }
+
+  return results;
 }
 
 // ==================== COMPLIANCE MAPPING ACTIVITY ====================
@@ -587,7 +748,7 @@ export async function crossValidate(input: {
   // This would integrate with Qwen Agent (different model) for review
   // For now, return placeholder result
 
-  console.log(`Cross-validating findings with ${input.model}`);
+  logger.info({ model: input.model, findingCount: input.findings.length }, 'Cross-validating findings');
 
   return {
     falsePositives: [],
@@ -630,7 +791,7 @@ export async function generateReport(input: {
     }
   }
 
-  console.log(`Generated report at ${reportPath}`);
+  logger.info({ reportPath, findingCount: input.findings.length }, 'Report generated');
 
   return { reportPath, evidencePath };
 }
@@ -680,9 +841,9 @@ ${input.complianceMaps.map((cm: ComplianceMap) => `### ${cm.framework}\n\nScore:
 export async function cleanup(repoPath: string): Promise<void> {
   try {
     await fs.rm(repoPath, { recursive: true, force: true });
-    console.log(`Cleaned up ${repoPath}`);
+    logger.info({ repoPath }, 'Cleanup completed');
   } catch (error) {
-    console.warn(`Cleanup failed: ${error}`);
+    logger.warn({ error: String(error), repoPath }, 'Cleanup failed');
   }
 }
 
@@ -714,4 +875,1519 @@ function mapSemgrepSeverityToP(severity: string): 'P0' | 'P1' | 'P2' | 'P3' {
     default:
       return 'P3';
   }
+}
+
+// ==================== PERFORMANCE ACTIVITY (Lighthouse) ====================
+
+export interface LighthouseResult {
+  url: string;
+  performance: number;
+  accessibility: number;
+  bestPractices: number;
+  seo: number;
+  lcp: number;
+  fid: number;
+  cls: number;
+}
+
+export async function runLighthouse(
+  url: string,
+  workflowId: string
+): Promise<{ findings: Finding[]; result: LighthouseResult }> {
+  const findings: Finding[] = [];
+  const outputPath = path.join('/tmp', `audit-${workflowId}`, 'lighthouse-report.json');
+
+  logger.info({ url }, 'Running Lighthouse audit');
+
+  // Ensure output directory exists
+  const outputDir = path.dirname(outputPath);
+  if (!existsSync(outputDir)) {
+    mkdirSync(outputDir, { recursive: true });
+  }
+
+  try {
+    // Run Lighthouse
+    await execAsync(
+      `lighthouse ${url} --output=json --output-path=${outputPath} --chrome-flags="--headless --no-sandbox"`,
+      { timeout: 120000 }
+    );
+
+    // Parse report
+    if (existsSync(outputPath)) {
+      const report = JSON.parse(readFileSync(outputPath, 'utf-8'));
+
+      const result: LighthouseResult = {
+        url,
+        performance: report.categories?.performance?.score * 100 || 0,
+        accessibility: report.categories?.accessibility?.score * 100 || 0,
+        bestPractices: report.categories?.['best-practices']?.score * 100 || 0,
+        seo: report.categories?.seo?.score * 100 || 0,
+        lcp: report.audits?.['largest-contentful-paint']?.numericValue || 0,
+        fid: report.audits?.['max-potential-fid']?.numericValue || 0,
+        cls: report.audits?.['cumulative-layout-shift']?.numericValue || 0,
+      };
+
+      // Generate findings based on thresholds
+      if (result.performance < 50) {
+        findings.push({
+          id: 'LH-PERF-1',
+          title: 'Poor Performance Score',
+          description: `Performance score ${result.performance.toFixed(0)}% is below 50% threshold`,
+          severity: 'P1',
+          category: 'performance',
+          evidence: [{
+            type: 'scan-output',
+            content: JSON.stringify(result, null, 2),
+            tool: 'lighthouse',
+            timestamp: new Date(),
+          }],
+          remediation: {
+            description: 'Optimize images, reduce JavaScript, enable compression',
+            effort: 'days',
+            priority: 'short-term',
+          },
+          verified: true,
+          createdAt: new Date(),
+        });
+      }
+
+      // LCP finding
+      if (result.lcp > 4000) {
+        findings.push({
+          id: 'LH-LCP-1',
+          title: 'Largest Contentful Paint too slow',
+          description: `LCP is ${(result.lcp / 1000).toFixed(2)}s (target: <2.5s)`,
+          severity: 'P1',
+          category: 'performance',
+          evidence: [{
+            type: 'scan-output',
+            content: `LCP: ${result.lcp}ms`,
+            tool: 'lighthouse',
+            timestamp: new Date(),
+          }],
+          remediation: {
+            description: 'Optimize server response time, use CDN, preload critical assets',
+            effort: 'days',
+            priority: 'short-term',
+          },
+          verified: true,
+          createdAt: new Date(),
+        });
+      }
+
+      // CLS finding
+      if (result.cls > 0.25) {
+        findings.push({
+          id: 'LH-CLS-1',
+          title: 'Cumulative Layout Shift too high',
+          description: `CLS is ${result.cls.toFixed(3)} (target: <0.1)`,
+          severity: 'P2',
+          category: 'performance',
+          evidence: [{
+            type: 'scan-output',
+            content: `CLS: ${result.cls}`,
+            tool: 'lighthouse',
+            timestamp: new Date(),
+          }],
+          remediation: {
+            description: 'Add size attributes to images, reserve space for dynamic content',
+            effort: 'hours',
+            priority: 'medium-term',
+          },
+          verified: true,
+          createdAt: new Date(),
+        });
+      }
+
+      logger.info({ findings: findings.length, result }, 'Lighthouse completed');
+      return { findings, result };
+    }
+  } catch (error) {
+    logger.warn({ error: String(error) }, 'Lighthouse encountered issues');
+  }
+
+  return { findings, result: { url, performance: 0, accessibility: 0, bestPractices: 0, seo: 0, lcp: 0, fid: 0, cls: 0 } };
+}
+
+// ==================== ACCESSIBILITY ACTIVITY (axe-cli) ====================
+
+export interface AccessibilityResult {
+  url: string;
+  violations: number;
+  passes: number;
+  incomplete: number;
+}
+
+export async function runAxeAccessibility(
+  url: string,
+  workflowId: string
+): Promise<{ findings: Finding[]; result: AccessibilityResult }> {
+  const findings: Finding[] = [];
+  const outputPath = path.join('/tmp', `audit-${workflowId}`, 'axe-report.json');
+
+  logger.info({ url }, 'Running accessibility audit');
+
+  // Ensure output directory exists
+  const outputDir = path.dirname(outputPath);
+  if (!existsSync(outputDir)) {
+    mkdirSync(outputDir, { recursive: true });
+  }
+
+  try {
+    // Run axe-cli
+    await execAsync(
+      `axe ${url} --save ${outputPath}`,
+      { timeout: 60000 }
+    );
+
+    // Parse report
+    if (existsSync(outputPath)) {
+      const report = JSON.parse(readFileSync(outputPath, 'utf-8'));
+
+      const result: AccessibilityResult = {
+        url,
+        violations: report.violations?.length || 0,
+        passes: report.passes?.length || 0,
+        incomplete: report.incomplete?.length || 0,
+      };
+
+      // Generate findings from violations
+      for (const violation of report.violations || []) {
+        const severity = violation.impact === 'critical' ? 'P0' :
+                        violation.impact === 'serious' ? 'P1' :
+                        violation.impact === 'moderate' ? 'P2' : 'P3';
+
+        findings.push({
+          id: `A11Y-${findings.length + 1}`,
+          title: `Accessibility: ${violation.id}`,
+          description: violation.description || violation.help,
+          severity,
+          category: 'accessibility' as any,
+          evidence: [{
+            type: 'scan-output',
+            content: violation.nodes?.map((n: any) => n.html).slice(0, 3).join('\n') || '',
+            tool: 'axe-cli',
+            timestamp: new Date(),
+          }],
+          remediation: {
+            description: violation.helpUrl || 'Fix accessibility issue',
+            effort: 'hours',
+            priority: severity === 'P0' ? 'immediate' : 'short-term',
+          },
+          verified: true,
+          createdAt: new Date(),
+        });
+      }
+
+      logger.info({ findings: findings.length, result }, 'Accessibility audit completed');
+      return { findings, result };
+    }
+  } catch (error) {
+    logger.warn({ error: String(error) }, 'Accessibility audit encountered issues');
+  }
+
+  return { findings, result: { url, violations: 0, passes: 0, incomplete: 0 } };
+}
+
+// ==================== SQL INJECTION ACTIVITY (Semgrep Custom Rules) ====================
+
+export async function runSqlInjectionCheck(
+  repoPath: string,
+  workflowId: string
+): Promise<Finding[]> {
+  const findings: Finding[] = [];
+  const outputPath = path.join('/tmp', `audit-${workflowId}`, 'sql-injection-report.json');
+
+  // Create custom SQL injection rules
+  const rulesPath = '/tmp/sql-injection-rules.yaml';
+  const rules = `
+rules:
+  - id: sql-injection-string-concat
+    languages: [python, javascript, typescript]
+    message: "SQL injection via string concatenation"
+    severity: ERROR
+    pattern: |
+      $QUERY = "..." + $VAR + "..."
+
+  - id: sql-injection-f-string
+    languages: [python]
+    message: "SQL injection via f-string"
+    severity: ERROR
+    pattern: |
+      $QUERY = f"...{$VAR}..."
+
+  - id: sql-injection-template-literal
+    languages: [javascript, typescript]
+    message: "SQL injection via template literal"
+    severity: ERROR
+    pattern: |
+      $QUERY = \`...\${$VAR}...\`
+
+  - id: sql-injection-exec
+    languages: [python]
+    message: "SQL injection in cursor.execute"
+    severity: ERROR
+    pattern: cursor.execute(f"...")
+
+  - id: sql-injection-raw-query
+    languages: [javascript, typescript]
+    message: "Raw SQL query with user input"
+    severity: WARNING
+    pattern: |
+      $DB.query("..." + $VAR)
+`;
+
+  writeFileSync(rulesPath, rules);
+
+  logger.info({ repoPath }, 'Running SQL injection check');
+
+  try {
+    await execAsync(
+      `semgrep --config=${rulesPath} --json --output ${outputPath} ${repoPath}`,
+      { timeout: 120000 }
+    );
+
+    if (existsSync(outputPath)) {
+      const report = JSON.parse(readFileSync(outputPath, 'utf-8'));
+
+      for (const result of report.results || []) {
+        findings.push({
+          id: `SQL-${findings.length + 1}`,
+          title: 'SQL Injection Vulnerability',
+          description: result.extra?.message || 'Potential SQL injection detected',
+          severity: 'P0',
+          category: 'security-injection',
+          evidence: [{
+            type: 'code-snippet',
+            file: result.path,
+            line: result.start?.line,
+            content: result.extra?.lines || '',
+            tool: 'semgrep-sql',
+            timestamp: new Date(),
+          }],
+          remediation: {
+            description: 'Use parameterized queries or prepared statements',
+            effort: 'hours',
+            priority: 'immediate',
+          },
+          verified: true,
+          createdAt: new Date(),
+        });
+      }
+    }
+
+    logger.info({ findings: findings.length }, 'SQL injection check completed');
+  } catch (error) {
+    logger.warn({ error: String(error) }, 'SQL injection check encountered issues');
+  }
+
+  return findings;
+}
+
+// ==================== RELIABILITY ACTIVITY ====================
+
+export interface ReliabilityResult {
+  hasErrorHandling: boolean;
+  hasRetryLogic: boolean;
+  hasCircuitBreaker: boolean;
+  hasHealthCheck: boolean;
+  tryCatchCoverage: number;
+}
+
+export async function checkReliability(
+  repoPath: string,
+  workflowId: string
+): Promise<{ findings: Finding[]; result: ReliabilityResult }> {
+  const findings: Finding[] = [];
+
+  logger.info({ repoPath }, 'Checking reliability patterns');
+
+  const result: ReliabilityResult = {
+    hasErrorHandling: false,
+    hasRetryLogic: false,
+    hasCircuitBreaker: false,
+    hasHealthCheck: false,
+    tryCatchCoverage: 0,
+  };
+
+  try {
+    // Find all code files
+    const { stdout } = await execAsync(
+      `find ${repoPath} -type f \\( -name "*.js" -o -name "*.ts" -o -name "*.py" \\) | head -100`,
+      { timeout: 30000 }
+    );
+
+    const files = stdout.trim().split('\n').filter(Boolean);
+    let totalFiles = 0;
+    let filesWithTryCatch = 0;
+
+    for (const file of files) {
+      if (!existsSync(file)) continue;
+      totalFiles++;
+
+      const content = readFileSync(file, 'utf-8');
+
+      // Check for try-catch
+      if (/try\s*{/.test(content) || /except\s*:/.test(content)) {
+        filesWithTryCatch++;
+        result.hasErrorHandling = true;
+      }
+
+      // Check for retry logic
+      if (/retry|backoff|exponential/i.test(content)) {
+        result.hasRetryLogic = true;
+      }
+
+      // Check for circuit breaker
+      if (/circuit\s*breaker|breaker/i.test(content)) {
+        result.hasCircuitBreaker = true;
+      }
+
+      // Check for health check
+      if (/\/health|healthcheck|health_check/i.test(content)) {
+        result.hasHealthCheck = true;
+      }
+    }
+
+    result.tryCatchCoverage = totalFiles > 0 ? (filesWithTryCatch / totalFiles) * 100 : 0;
+
+    // Generate findings
+    if (!result.hasErrorHandling) {
+      findings.push({
+        id: 'REL-1',
+        title: 'Missing Error Handling',
+        description: 'No try-catch or error handling patterns found',
+        severity: 'P1',
+        category: 'reliability',
+        evidence: [{
+          type: 'code-review',
+          content: 'No try-catch patterns detected in codebase',
+          tool: 'reliability-check',
+          timestamp: new Date(),
+        }],
+        remediation: {
+          description: 'Add try-catch blocks around critical operations',
+          effort: 'days',
+          priority: 'short-term',
+        },
+        verified: true,
+        createdAt: new Date(),
+      });
+    }
+
+    if (!result.hasRetryLogic) {
+      findings.push({
+        id: 'REL-2',
+        title: 'Missing Retry Logic',
+        description: 'No retry or backoff patterns found',
+        severity: 'P2',
+        category: 'reliability',
+        evidence: [{
+          type: 'code-review',
+          content: 'No retry patterns detected',
+          tool: 'reliability-check',
+          timestamp: new Date(),
+        }],
+        remediation: {
+          description: 'Add retry logic for external API calls and database operations',
+          effort: 'hours',
+          priority: 'medium-term',
+        },
+        verified: true,
+        createdAt: new Date(),
+      });
+    }
+
+    if (!result.hasHealthCheck) {
+      findings.push({
+        id: 'REL-3',
+        title: 'Missing Health Check Endpoint',
+        description: 'No /health or healthcheck endpoint found',
+        severity: 'P2',
+        category: 'reliability',
+        evidence: [{
+          type: 'code-review',
+          content: 'No health check endpoint detected',
+          tool: 'reliability-check',
+          timestamp: new Date(),
+        }],
+        remediation: {
+          description: 'Add /health endpoint for monitoring',
+          effort: 'hours',
+          priority: 'short-term',
+        },
+        verified: true,
+        createdAt: new Date(),
+      });
+    }
+
+    if (result.tryCatchCoverage < 50) {
+      findings.push({
+        id: 'REL-4',
+        title: 'Low Error Handling Coverage',
+        description: `Only ${result.tryCatchCoverage.toFixed(0)}% of files have error handling`,
+        severity: 'P2',
+        category: 'reliability',
+        evidence: [{
+          type: 'code-review',
+          content: `Try-catch coverage: ${result.tryCatchCoverage.toFixed(1)}%`,
+          tool: 'reliability-check',
+          timestamp: new Date(),
+        }],
+        remediation: {
+          description: 'Increase error handling coverage to at least 80%',
+          effort: 'days',
+          priority: 'medium-term',
+        },
+        verified: true,
+        createdAt: new Date(),
+      });
+    }
+
+    logger.info({ findings: findings.length, result }, 'Reliability check completed');
+  } catch (error) {
+    logger.warn({ error: String(error) }, 'Reliability check encountered issues');
+  }
+
+  return { findings, result };
+}
+
+// ==================== OBSERVABILITY ACTIVITY ====================
+
+export interface ObservabilityResult {
+  hasStructuredLogging: boolean;
+  hasMetrics: boolean;
+  hasTracing: boolean;
+  hasAlerting: boolean;
+  loggingFramework: string | null;
+}
+
+export async function checkObservability(
+  repoPath: string,
+  workflowId: string
+): Promise<{ findings: Finding[]; result: ObservabilityResult }> {
+  const findings: Finding[] = [];
+
+  logger.info({ repoPath }, 'Checking observability patterns');
+
+  const result: ObservabilityResult = {
+    hasStructuredLogging: false,
+    hasMetrics: false,
+    hasTracing: false,
+    hasAlerting: false,
+    loggingFramework: null,
+  };
+
+  try {
+    const { stdout } = await execAsync(
+      `find ${repoPath} -type f \\( -name "*.js" -o -name "*.ts" -o -name "*.py" \\) | head -100`,
+      { timeout: 30000 }
+    );
+
+    const files = stdout.trim().split('\n').filter(Boolean);
+
+    for (const file of files) {
+      if (!existsSync(file)) continue;
+      const content = readFileSync(file, 'utf-8');
+
+      // Check for structured logging
+      if (/pino|winston|bunyan|structlog|loguru/i.test(content)) {
+        result.hasStructuredLogging = true;
+        if (/pino/i.test(content)) result.loggingFramework = 'pino';
+        else if (/winston/i.test(content)) result.loggingFramework = 'winston';
+        else if (/bunyan/i.test(content)) result.loggingFramework = 'bunyan';
+        else if (/structlog/i.test(content)) result.loggingFramework = 'structlog';
+        else if (/loguru/i.test(content)) result.loggingFramework = 'loguru';
+      }
+
+      // Check for metrics
+      if (/prometheus|metrics|statsd|datadog|newrelic/i.test(content)) {
+        result.hasMetrics = true;
+      }
+
+      // Check for tracing
+      if (/opentelemetry|jaeger|zipkin|tracing/i.test(content)) {
+        result.hasTracing = true;
+      }
+
+      // Check for alerting
+      if (/alertmanager|pagerduty|opsgenie|alerting/i.test(content)) {
+        result.hasAlerting = true;
+      }
+    }
+
+    // Generate findings
+    if (!result.hasStructuredLogging) {
+      findings.push({
+        id: 'OBS-1',
+        title: 'Missing Structured Logging',
+        description: 'No structured logging framework detected (pino, winston, structlog)',
+        severity: 'P1',
+        category: 'observability',
+        evidence: [{
+          type: 'code-review',
+          content: 'No structured logging framework found',
+          tool: 'observability-check',
+          timestamp: new Date(),
+        }],
+        remediation: {
+          description: 'Implement structured logging with JSON output',
+          effort: 'days',
+          priority: 'short-term',
+        },
+        verified: true,
+        createdAt: new Date(),
+      });
+    }
+
+    if (!result.hasMetrics) {
+      findings.push({
+        id: 'OBS-2',
+        title: 'Missing Metrics Collection',
+        description: 'No metrics instrumentation found',
+        severity: 'P2',
+        category: 'observability',
+        evidence: [{
+          type: 'code-review',
+          content: 'No metrics framework detected',
+          tool: 'observability-check',
+          timestamp: new Date(),
+        }],
+        remediation: {
+          description: 'Add Prometheus or similar metrics collection',
+          effort: 'days',
+          priority: 'medium-term',
+        },
+        verified: true,
+        createdAt: new Date(),
+      });
+    }
+
+    if (!result.hasTracing) {
+      findings.push({
+        id: 'OBS-3',
+        title: 'Missing Distributed Tracing',
+        description: 'No distributed tracing implementation found',
+        severity: 'P2',
+        category: 'observability',
+        evidence: [{
+          type: 'code-review',
+          content: 'No tracing framework detected',
+          tool: 'observability-check',
+          timestamp: new Date(),
+        }],
+        remediation: {
+          description: 'Implement OpenTelemetry for distributed tracing',
+          effort: 'days',
+          priority: 'long-term',
+        },
+        verified: true,
+        createdAt: new Date(),
+      });
+    }
+
+    logger.info({ findings: findings.length, result }, 'Observability check completed');
+  } catch (error) {
+    logger.warn({ error: String(error) }, 'Observability check encountered issues');
+  }
+
+  return { findings, result };
+}
+
+// ==================== CI/CD ACTIVITY ====================
+
+export interface CicdResult {
+  hasCiPipeline: boolean;
+  hasSecurityGates: boolean;
+  hasDeployStage: boolean;
+  hasRollback: boolean;
+  platform: string | null;
+}
+
+export async function checkCicd(
+  repoPath: string,
+  workflowId: string
+): Promise<{ findings: Finding[]; result: CicdResult }> {
+  const findings: Finding[] = [];
+
+  logger.info({ repoPath }, 'Checking CI/CD configuration');
+
+  const result: CicdResult = {
+    hasCiPipeline: false,
+    hasSecurityGates: false,
+    hasDeployStage: false,
+    hasRollback: false,
+    platform: null,
+  };
+
+  try {
+    // Check for CI config files
+    const ciFiles = [
+      { path: '.woodpecker.yml', platform: 'woodpecker' },
+      { path: '.github/workflows', platform: 'github-actions' },
+      { path: '.gitlab-ci.yml', platform: 'gitlab-ci' },
+      { path: 'Jenkinsfile', platform: 'jenkins' },
+      { path: '.circleci/config.yml', platform: 'circleci' },
+    ];
+
+    for (const { path: ciPath, platform } of ciFiles) {
+      const fullPath = path.join(repoPath, ciPath);
+      if (existsSync(fullPath)) {
+        result.hasCiPipeline = true;
+        result.platform = platform;
+
+        // Read config
+        if (ciPath.endsWith('.yml') || ciPath.endsWith('.yaml')) {
+          const content = readFileSync(fullPath, 'utf-8');
+
+          // Check for security gates
+          if (/npm\s+audit|gitleaks|semgrep|snyk|trivy/i.test(content)) {
+            result.hasSecurityGates = true;
+          }
+
+          // Check for deploy stage
+          if (/deploy|publish|release/i.test(content)) {
+            result.hasDeployStage = true;
+          }
+
+          // Check for rollback
+          if (/rollback|revert|undo/i.test(content)) {
+            result.hasRollback = true;
+          }
+        }
+        break;
+      }
+    }
+
+    // Generate findings
+    if (!result.hasCiPipeline) {
+      findings.push({
+        id: 'CICD-1',
+        title: 'Missing CI/CD Pipeline',
+        description: 'No CI pipeline configuration found',
+        severity: 'P1',
+        category: 'cicd',
+        evidence: [{
+          type: 'config',
+          content: 'No .woodpecker.yml, .github/workflows, or other CI config found',
+          tool: 'cicd-check',
+          timestamp: new Date(),
+        }],
+        remediation: {
+          description: 'Add CI pipeline with build, test, and security gates',
+          effort: 'days',
+          priority: 'immediate',
+        },
+        verified: true,
+        createdAt: new Date(),
+      });
+    }
+
+    if (result.hasCiPipeline && !result.hasSecurityGates) {
+      findings.push({
+        id: 'CICD-2',
+        title: 'Missing Security Gates in CI',
+        description: 'CI pipeline lacks security scanning (npm audit, gitleaks, semgrep)',
+        severity: 'P1',
+        category: 'cicd',
+        evidence: [{
+          type: 'config',
+          content: `CI platform: ${result.platform}, no security gates found`,
+          tool: 'cicd-check',
+          timestamp: new Date(),
+        }],
+        remediation: {
+          description: 'Add npm audit, gitleaks, and semgrep to CI pipeline',
+          effort: 'hours',
+          priority: 'short-term',
+        },
+        verified: true,
+        createdAt: new Date(),
+      });
+    }
+
+    if (result.hasCiPipeline && !result.hasRollback) {
+      findings.push({
+        id: 'CICD-3',
+        title: 'Missing Rollback Procedure',
+        description: 'CI pipeline lacks rollback mechanism',
+        severity: 'P2',
+        category: 'cicd',
+        evidence: [{
+          type: 'config',
+          content: 'No rollback or revert steps found in CI config',
+          tool: 'cicd-check',
+          timestamp: new Date(),
+        }],
+        remediation: {
+          description: 'Add automated rollback procedure for failed deployments',
+          effort: 'hours',
+          priority: 'medium-term',
+        },
+        verified: true,
+        createdAt: new Date(),
+      });
+    }
+
+    logger.info({ findings: findings.length, result }, 'CI/CD check completed');
+  } catch (error) {
+    logger.warn({ error: String(error) }, 'CI/CD check encountered issues');
+  }
+
+  return { findings, result };
+}
+
+// ==================== HUMAN APPROVAL ACTIVITY ====================
+
+export async function waitForHumanApproval(
+  workflowId: string,
+  p0Count: number,
+  deadline?: string
+): Promise<{ approved: boolean; reviewer?: string; notes?: string }> {
+  logger.info({ workflowId, p0Count }, 'Waiting for human approval');
+
+  // In a real Temporal workflow, this would use signals
+  // For now, auto-approve if no P0 findings or skip flag
+  if (p0Count === 0) {
+    logger.info('Auto-approved: no critical findings');
+    return { approved: true, reviewer: 'auto', notes: 'No P0 findings' };
+  }
+
+  // In production, this would await a signal from the client
+  // For now, return pending state
+  return { approved: false, notes: 'Requires manual review' };
+}
+
+// ==================== CODE QUALITY ACTIVITY ====================
+
+export interface CodeQualityResult {
+  lintErrors: number;
+  lintWarnings: number;
+  typeErrors: number;
+  complexityIssues: number;
+  techDebtScore: number;
+}
+
+export async function checkCodeQuality(
+  repoPath: string,
+  workflowId: string
+): Promise<{ findings: Finding[]; result: CodeQualityResult }> {
+  const findings: Finding[] = [];
+
+  logger.info({ repoPath }, 'Checking code quality');
+
+  const result: CodeQualityResult = {
+    lintErrors: 0,
+    lintWarnings: 0,
+    typeErrors: 0,
+    complexityIssues: 0,
+    techDebtScore: 0,
+  };
+
+  try {
+    // Check for ESLint config
+    const eslintConfig = [
+      path.join(repoPath, '.eslintrc.js'),
+      path.join(repoPath, '.eslintrc.json'),
+      path.join(repoPath, '.eslintrc'),
+    ];
+
+    const hasEslint = eslintConfig.some(c => existsSync(c));
+
+    if (hasEslint) {
+      // Run ESLint
+      try {
+        const { stdout, stderr } = await execAsync(
+          `cd ${repoPath} && npx eslint . --ext .js,.ts,.jsx,.tsx --format json`,
+          { timeout: 60000 }
+        );
+
+        const lintResults = JSON.parse(stdout || '[]');
+
+        for (const fileResult of lintResults) {
+          for (const msg of fileResult.messages || []) {
+            if (msg.severity === 2) {
+              result.lintErrors++;
+            } else {
+              result.lintWarnings++;
+            }
+          }
+        }
+
+        if (result.lintErrors > 0) {
+          findings.push({
+            id: 'QUALITY-1',
+            title: 'Linting Errors',
+            description: `${result.lintErrors} ESLint errors found`,
+            severity: 'P1',
+            category: 'code-quality' as any,
+            evidence: [{
+              type: 'scan-output',
+              content: `Lint errors: ${result.lintErrors}, warnings: ${result.lintWarnings}`,
+              tool: 'eslint',
+              timestamp: new Date(),
+            }],
+            remediation: {
+              description: 'Fix ESLint errors before committing',
+              effort: 'hours',
+              priority: 'short-term',
+            },
+            verified: true,
+            createdAt: new Date(),
+          });
+        }
+      } catch (error: any) {
+        // ESLint exits with non-zero on errors - parse the output
+        const output = error.stdout || '';
+        try {
+          const lintResults = JSON.parse(output);
+          for (const fileResult of lintResults) {
+            for (const msg of fileResult.messages || []) {
+              if (msg.severity === 2) result.lintErrors++;
+              else result.lintWarnings++;
+            }
+          }
+        } catch {
+          // Ignore parse errors
+        }
+      }
+    }
+
+    // Check for TypeScript
+    const tsconfigPath = path.join(repoPath, 'tsconfig.json');
+    if (existsSync(tsconfigPath)) {
+      try {
+        const { stdout } = await execAsync(
+          `cd ${repoPath} && npx tsc --noEmit 2>&1 | grep -c "error TS"`,
+          { timeout: 60000 }
+        );
+        result.typeErrors = parseInt(stdout.trim()) || 0;
+
+        if (result.typeErrors > 0) {
+          findings.push({
+            id: 'QUALITY-2',
+            title: 'TypeScript Errors',
+            description: `${result.typeErrors} TypeScript errors found`,
+            severity: 'P1',
+            category: 'code-quality' as any,
+            evidence: [{
+              type: 'scan-output',
+              content: `Type errors: ${result.typeErrors}`,
+              tool: 'tsc',
+              timestamp: new Date(),
+            }],
+            remediation: {
+              description: 'Fix TypeScript type errors',
+              effort: 'hours',
+              priority: 'short-term',
+            },
+            verified: true,
+            createdAt: new Date(),
+          });
+        }
+      } catch {
+        // TypeScript errors cause non-zero exit
+      }
+    }
+
+    // Check code complexity (simple heuristic)
+    const { stdout: fileStats } = await execAsync(
+      `find ${repoPath} -type f \\( -name "*.js" -o -name "*.ts" \\) -exec wc -l {} \\; | sort -rn | head -20`,
+      { timeout: 30000 }
+    );
+
+    const longFiles = fileStats.trim().split('\n').filter(line => {
+      const lines = parseInt(line.split(' ')[0]);
+      return lines > 500;
+    });
+
+    result.complexityIssues = longFiles.length;
+
+    if (result.complexityIssues > 0) {
+      findings.push({
+        id: 'QUALITY-3',
+        title: 'High Code Complexity',
+        description: `${result.complexityIssues} files exceed 500 lines`,
+        severity: 'P2',
+        category: 'code-quality' as any,
+        evidence: [{
+          type: 'scan-output',
+          content: longFiles.slice(0, 5).join('\n'),
+          tool: 'wc',
+          timestamp: new Date(),
+        }],
+        remediation: {
+          description: 'Consider refactoring large files into smaller modules',
+          effort: 'days',
+          priority: 'medium-term',
+        },
+        verified: true,
+        createdAt: new Date(),
+      });
+    }
+
+    // Calculate tech debt score (simple metric)
+    result.techDebtScore = result.lintErrors * 10 + result.typeErrors * 5 + result.complexityIssues * 3;
+
+    logger.info({ findings: findings.length, result }, 'Code quality check completed');
+  } catch (error) {
+    logger.warn({ error: String(error) }, 'Code quality check encountered issues');
+  }
+
+  return { findings, result };
+}
+
+// ==================== DOCUMENTATION ACTIVITY ====================
+
+export interface DocumentationResult {
+  hasReadme: boolean;
+  hasApiDocs: boolean;
+  hasArchitecture: boolean;
+  hasRunbooks: boolean;
+  docScore: number;
+}
+
+export async function checkDocumentation(
+  repoPath: string,
+  workflowId: string
+): Promise<{ findings: Finding[]; result: DocumentationResult }> {
+  const findings: Finding[] = [];
+
+  logger.info({ repoPath }, 'Checking documentation');
+
+  const result: DocumentationResult = {
+    hasReadme: false,
+    hasApiDocs: false,
+    hasArchitecture: false,
+    hasRunbooks: false,
+    docScore: 0,
+  };
+
+  try {
+    // Check for README
+    const readmePaths = [
+      path.join(repoPath, 'README.md'),
+      path.join(repoPath, 'readme.md'),
+      path.join(repoPath, 'README'),
+    ];
+
+    result.hasReadme = readmePaths.some(p => existsSync(p));
+
+    if (!result.hasReadme) {
+      findings.push({
+        id: 'DOC-1',
+        title: 'Missing README',
+        description: 'No README.md found in repository root',
+        severity: 'P1',
+        category: 'documentation' as any,
+        evidence: [{
+          type: 'config',
+          content: 'No README.md, readme.md, or README file found',
+          tool: 'doc-check',
+          timestamp: new Date(),
+        }],
+        remediation: {
+          description: 'Add README.md with project description, setup instructions, and usage',
+          effort: 'hours',
+          priority: 'short-term',
+        },
+        verified: true,
+        createdAt: new Date(),
+      });
+    } else {
+      // Check README completeness
+      const readmePath = readmePaths.find(p => existsSync(p));
+      if (readmePath) {
+        const content = readFileSync(readmePath, 'utf-8');
+        const hasInstall = /install|setup|getting started/i.test(content);
+        const hasUsage = /usage|example|how to/i.test(content);
+
+        if (!hasInstall || !hasUsage) {
+          findings.push({
+            id: 'DOC-2',
+            title: 'Incomplete README',
+            description: 'README missing installation or usage sections',
+            severity: 'P2',
+            category: 'documentation' as any,
+            evidence: [{
+              type: 'config',
+              content: `Has install: ${hasInstall}, Has usage: ${hasUsage}`,
+              tool: 'doc-check',
+              timestamp: new Date(),
+            }],
+            remediation: {
+              description: 'Add installation and usage sections to README',
+              effort: 'hours',
+              priority: 'short-term',
+            },
+            verified: true,
+            createdAt: new Date(),
+          });
+        }
+      }
+    }
+
+    // Check for API docs
+    const apiDocPaths = [
+      path.join(repoPath, 'docs', 'api'),
+      path.join(repoPath, 'api', 'README.md'),
+      path.join(repoPath, 'openapi.yaml'),
+      path.join(repoPath, 'openapi.json'),
+      path.join(repoPath, 'swagger.yaml'),
+    ];
+
+    result.hasApiDocs = apiDocPaths.some(p => existsSync(p));
+
+    // Check for architecture docs
+    const archDocPaths = [
+      path.join(repoPath, 'docs', 'architecture'),
+      path.join(repoPath, 'ARCHITECTURE.md'),
+      path.join(repoPath, 'docs', 'ADR'),
+    ];
+
+    result.hasArchitecture = archDocPaths.some(p => existsSync(p));
+
+    // Check for runbooks
+    const runbookPaths = [
+      path.join(repoPath, 'docs', 'runbooks'),
+      path.join(repoPath, 'RUNBOOK.md'),
+      path.join(repoPath, 'docs', 'operations'),
+    ];
+
+    result.hasRunbooks = runbookPaths.some(p => existsSync(p));
+
+    // Calculate doc score
+    result.docScore = (result.hasReadme ? 40 : 0) +
+                       (result.hasApiDocs ? 20 : 0) +
+                       (result.hasArchitecture ? 20 : 0) +
+                       (result.hasRunbooks ? 20 : 0);
+
+    logger.info({ findings: findings.length, result }, 'Documentation check completed');
+  } catch (error) {
+    logger.warn({ error: String(error) }, 'Documentation check encountered issues');
+  }
+
+  return { findings, result };
+}
+
+// ==================== PRIVACY & GDPR ACTIVITY ====================
+
+export interface PrivacyResult {
+  hasConsentBanner: boolean;
+  hasPrivacyPolicy: boolean;
+  hasDataClassification: boolean;
+  hasCookieConfig: boolean;
+}
+
+export async function checkPrivacy(
+  repoPath: string,
+  workflowId: string
+): Promise<{ findings: Finding[]; result: PrivacyResult }> {
+  const findings: Finding[] = [];
+
+  logger.info({ repoPath }, 'Checking privacy & GDPR');
+
+  const result: PrivacyResult = {
+    hasConsentBanner: false,
+    hasPrivacyPolicy: false,
+    hasDataClassification: false,
+    hasCookieConfig: false,
+  };
+
+  try {
+    // Find code files
+    const { stdout } = await execAsync(
+      `find ${repoPath} -type f \\( -name "*.js" -o -name "*.ts" -o -name "*.jsx" -o -name "*.tsx" -o -name "*.py" \\) | head -100`,
+      { timeout: 30000 }
+    );
+
+    const files = stdout.trim().split('\n').filter(Boolean);
+
+    for (const file of files) {
+      if (!existsSync(file)) continue;
+      const content = readFileSync(file, 'utf-8');
+
+      // Check for consent banner implementation
+      if (/consent|cookie.*banner|gdpr.*banner|privacy.*banner/i.test(content)) {
+        result.hasConsentBanner = true;
+      }
+
+      // Check for privacy policy
+      if (/privacy.?policy|privacypolicy/i.test(content)) {
+        result.hasPrivacyPolicy = true;
+      }
+
+      // Check for data classification
+      if (/data.?classification|pii.?identif|sensitive.?data/i.test(content)) {
+        result.hasDataClassification = true;
+      }
+
+      // Check for cookie configuration
+      if (/cookie.?consent|cookiebot|cookie.?law/i.test(content)) {
+        result.hasCookieConfig = true;
+      }
+    }
+
+    // Generate findings
+    if (!result.hasConsentBanner) {
+      findings.push({
+        id: 'PRIV-1',
+        title: 'Missing Consent Banner',
+        description: 'No cookie consent implementation detected',
+        severity: 'P1',
+        category: 'privacy' as any,
+        evidence: [{
+          type: 'code-review',
+          content: 'No consent banner or cookie consent library found',
+          tool: 'privacy-check',
+          timestamp: new Date(),
+        }],
+        remediation: {
+          description: 'Implement cookie consent banner (Cookiebot, OneTrust, or custom)',
+          effort: 'days',
+          priority: 'short-term',
+        },
+        verified: true,
+        createdAt: new Date(),
+      });
+    }
+
+    if (!result.hasPrivacyPolicy) {
+      findings.push({
+        id: 'PRIV-2',
+        title: 'Missing Privacy Policy',
+        description: 'No privacy policy reference found',
+        severity: 'P1',
+        category: 'privacy' as any,
+        evidence: [{
+          type: 'code-review',
+          content: 'No privacy policy link or page detected',
+          tool: 'privacy-check',
+          timestamp: new Date(),
+        }],
+        remediation: {
+          description: 'Add privacy policy page and link in footer/consent flow',
+          effort: 'hours',
+          priority: 'short-term',
+        },
+        verified: true,
+        createdAt: new Date(),
+      });
+    }
+
+    logger.info({ findings: findings.length, result }, 'Privacy check completed');
+  } catch (error) {
+    logger.warn({ error: String(error) }, 'Privacy check encountered issues');
+  }
+
+  return { findings, result };
+}
+
+// ==================== FUNCTIONAL REQUIREMENTS ACTIVITY ====================
+
+export interface FunctionalResult {
+  hasAcceptanceCriteria: boolean;
+  hasTestsPerFeature: boolean;
+  hasEdgeCaseTests: boolean;
+  hasErrorPathTests: boolean;
+}
+
+export async function checkFunctionalRequirements(
+  repoPath: string,
+  workflowId: string
+): Promise<{ findings: Finding[]; result: FunctionalResult }> {
+  const findings: Finding[] = [];
+
+  logger.info({ repoPath }, 'Checking functional requirements');
+
+  const result: FunctionalResult = {
+    hasAcceptanceCriteria: false,
+    hasTestsPerFeature: false,
+    hasEdgeCaseTests: false,
+    hasErrorPathTests: false,
+  };
+
+  try {
+    // Check for feature specs / acceptance criteria
+    const specPaths = [
+      path.join(repoPath, 'specs'),
+      path.join(repoPath, 'features'),
+      path.join(repoPath, '.feature'),
+      path.join(repoPath, 'requirements'),
+    ];
+
+    result.hasAcceptanceCriteria = specPaths.some(p => existsSync(p));
+
+    // Check for test files
+    const testDirs = [
+      path.join(repoPath, 'tests'),
+      path.join(repoPath, 'test'),
+      path.join(repoPath, '__tests__'),
+      path.join(repoPath, 'spec'),
+    ];
+
+    const hasTests = testDirs.some(p => existsSync(p));
+
+    if (hasTests) {
+      // Check test content for edge cases
+      const { stdout: testFiles } = await execAsync(
+        `find ${repoPath} -path "*/tests/*" -o -path "*/test/*" -o -path "*/__tests__/*" | grep -E "\\.(test|spec)\\.(js|ts|py)$" | head -50`,
+        { timeout: 30000 }
+      );
+
+      const testFileList = testFiles.trim().split('\n').filter(Boolean);
+
+      if (testFileList.length > 0) {
+        result.hasTestsPerFeature = true;
+
+        // Check for edge case tests
+        for (const file of testFileList.slice(0, 20)) {
+          if (!existsSync(file)) continue;
+          const content = readFileSync(file, 'utf-8');
+
+          if (/edge.?case|boundary|corner.?case|negative.?test/i.test(content)) {
+            result.hasEdgeCaseTests = true;
+          }
+
+          if (/error.?path|error.?case|exception.?test|fail.?test/i.test(content)) {
+            result.hasErrorPathTests = true;
+          }
+        }
+      }
+    }
+
+    // Generate findings
+    if (!result.hasAcceptanceCriteria) {
+      findings.push({
+        id: 'FUNC-1',
+        title: 'Missing Acceptance Criteria',
+        description: 'No feature specs or acceptance criteria documentation found',
+        severity: 'P1',
+        category: 'compliance' as any,
+        evidence: [{
+          type: 'config',
+          content: 'No specs/, features/, or requirements/ directory found',
+          tool: 'functional-check',
+          timestamp: new Date(),
+        }],
+        remediation: {
+          description: 'Document acceptance criteria for each feature (Gherkin, markdown, or specs)',
+          effort: 'days',
+          priority: 'medium-term',
+        },
+        verified: true,
+        createdAt: new Date(),
+      });
+    }
+
+    if (!result.hasEdgeCaseTests) {
+      findings.push({
+        id: 'FUNC-2',
+        title: 'Missing Edge Case Tests',
+        description: 'No edge case or boundary tests found',
+        severity: 'P2',
+        category: 'testing' as any,
+        evidence: [{
+          type: 'code-review',
+          content: 'No test files mention edge cases, boundaries, or corner cases',
+          tool: 'functional-check',
+          timestamp: new Date(),
+        }],
+        remediation: {
+          description: 'Add tests for edge cases and boundary conditions',
+          effort: 'days',
+          priority: 'medium-term',
+        },
+        verified: true,
+        createdAt: new Date(),
+      });
+    }
+
+    logger.info({ findings: findings.length, result }, 'Functional requirements check completed');
+  } catch (error) {
+    logger.warn({ error: String(error) }, 'Functional requirements check encountered issues');
+  }
+
+  return { findings, result };
+}
+
+// ==================== BLINDE VLEKKEN ACTIVITY ====================
+
+export interface BlindSpotsResult {
+  hasOnCall: boolean;
+  busFactor: number;
+  hasDataLineage: boolean;
+  hasVendorPolicy: boolean;
+  hasExitStrategy: boolean;
+  hasMobileSupport: boolean;
+  hasI18n: boolean;
+  riskScore: number;
+}
+
+export async function checkBlindSpots(
+  repoPath: string,
+  workflowId: string
+): Promise<{ findings: Finding[]; result: BlindSpotsResult }> {
+  const findings: Finding[] = [];
+
+  logger.info({ repoPath }, 'Checking blind spots');
+
+  const result: BlindSpotsResult = {
+    hasOnCall: false,
+    busFactor: 0,
+    hasDataLineage: false,
+    hasVendorPolicy: false,
+    hasExitStrategy: false,
+    hasMobileSupport: false,
+    hasI18n: false,
+    riskScore: 0,
+  };
+
+  try {
+    // Check for on-call documentation
+    const onCallPaths = [
+      path.join(repoPath, 'docs', 'on-call'),
+      path.join(repoPath, 'ONCALL.md'),
+      path.join(repoPath, '.oncall'),
+    ];
+    result.hasOnCall = onCallPaths.some(p => existsSync(p));
+
+    // Check bus factor (number of contributors)
+    try {
+      const { stdout } = await execAsync(
+        `cd ${repoPath} && git log --format='%aN' | sort -u | wc -l`,
+        { timeout: 10000 }
+      );
+      result.busFactor = parseInt(stdout.trim()) || 1;
+    } catch {
+      result.busFactor = 1;
+    }
+
+    // Check for data lineage
+    const { stdout: lineageCheck } = await execAsync(
+      `find ${repoPath} -type f \\( -name "*.md" -o -name "*.txt" \\) -exec grep -l "data.*lineage\\|data.*flow\\|lineage" {} \\; 2>/dev/null | head -5`,
+      { timeout: 30000 }
+    );
+    result.hasDataLineage = lineageCheck.trim().length > 0;
+
+    // Check for vendor policy
+    const vendorPaths = [
+      path.join(repoPath, 'docs', 'vendor'),
+      path.join(repoPath, 'VENDOR.md'),
+    ];
+    result.hasVendorPolicy = vendorPaths.some(p => existsSync(p));
+
+    // Check for exit strategy
+    const exitPaths = [
+      path.join(repoPath, 'docs', 'exit-strategy'),
+      path.join(repoPath, 'EXIT-STRATEGY.md'),
+      path.join(repoPath, 'docs', 'sunset'),
+    ];
+    result.hasExitStrategy = exitPaths.some(p => existsSync(p));
+
+    // Check for mobile support (responsive)
+    const { stdout: codeFiles } = await execAsync(
+      `find ${repoPath} -type f \\( -name "*.js" -o -name "*.ts" -o -name "*.jsx" -o -name "*.tsx" \\) | head -50`,
+      { timeout: 30000 }
+    );
+
+    const files = codeFiles.trim().split('\n').filter(Boolean);
+    for (const file of files.slice(0, 20)) {
+      if (!existsSync(file)) continue;
+      const content = readFileSync(file, 'utf-8');
+
+      // Check for mobile/responsive
+      if (/mobile|responsive|viewport|@media|max-width/i.test(content)) {
+        result.hasMobileSupport = true;
+      }
+
+      // Check for i18n
+      if (/i18n|locale|translation|language|intl/i.test(content)) {
+        result.hasI18n = true;
+      }
+    }
+
+    // Generate findings
+    if (result.busFactor <= 1) {
+      findings.push({
+        id: 'BLIND-1',
+        title: 'Bus Factor Risk',
+        description: `Only ${result.busFactor} contributor(s) - knowledge concentration risk`,
+        severity: 'P1',
+        category: 'compliance' as any,
+        evidence: [{
+          type: 'scan-output',
+          content: `Unique contributors: ${result.busFactor}`,
+          tool: 'blind-spots-check',
+          timestamp: new Date(),
+        }],
+        remediation: {
+          description: 'Document critical knowledge, cross-train team members',
+          effort: 'days',
+          priority: 'short-term',
+        },
+        verified: true,
+        createdAt: new Date(),
+      });
+    }
+
+    if (!result.hasOnCall) {
+      findings.push({
+        id: 'BLIND-2',
+        title: 'Missing On-Call Documentation',
+        description: 'No on-call procedures documented',
+        severity: 'P2',
+        category: 'observability' as any,
+        evidence: [{
+          type: 'config',
+          content: 'No docs/on-call, ONCALL.md, or .oncall found',
+          tool: 'blind-spots-check',
+          timestamp: new Date(),
+        }],
+        remediation: {
+          description: 'Document on-call procedures, escalation paths, and runbooks',
+          effort: 'hours',
+          priority: 'short-term',
+        },
+        verified: true,
+        createdAt: new Date(),
+      });
+    }
+
+    if (!result.hasExitStrategy) {
+      findings.push({
+        id: 'BLIND-3',
+        title: 'Missing Exit Strategy',
+        description: 'No sunset/exit strategy documented',
+        severity: 'P3',
+        category: 'compliance' as any,
+        evidence: [{
+          type: 'config',
+          content: 'No exit strategy documentation found',
+          tool: 'blind-spots-check',
+          timestamp: new Date(),
+        }],
+        remediation: {
+          description: 'Document data export procedures and vendor exit strategy',
+          effort: 'hours',
+          priority: 'medium-term',
+        },
+        verified: true,
+        createdAt: new Date(),
+      });
+    }
+
+    // Calculate risk score
+    result.riskScore = (result.busFactor <= 1 ? 30 : 0) +
+                       (!result.hasOnCall ? 20 : 0) +
+                       (!result.hasDataLineage ? 15 : 0) +
+                       (!result.hasVendorPolicy ? 15 : 0) +
+                       (!result.hasExitStrategy ? 10 : 0);
+
+    logger.info({ findings: findings.length, result }, 'Blind spots check completed');
+  } catch (error) {
+    logger.warn({ error: String(error) }, 'Blind spots check encountered issues');
+  }
+
+  return { findings, result };
 }
