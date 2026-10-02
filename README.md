@@ -154,6 +154,8 @@ Status figures (tests, coverage) come from the pipeline output, not from this fi
 
 ## Guardrails
 
+See `docs/assurance-roadmap.md` for the product goal, the assurance levels and the ordered backlog.
+
 ### CI and local parity
 
 Each CI step calls the same npm script or `scripts/ci/*.sh` as local verification.
