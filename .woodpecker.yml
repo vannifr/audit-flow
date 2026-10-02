@@ -37,16 +37,13 @@ steps:
   # Phase 5: SonarQube analysis - BLOCK on quality gate failure
   sonarqube:
     image: sonarsource/sonar-scanner-cli:latest
+    environment:
+      SONAR_TOKEN:
+        from_secret: sonar_token
+      SONAR_HOST_URL:
+        from_secret: sonar_host_url
     commands:
       - |
-        if [ -z "$SONAR_TOKEN" ]; then
-          echo "ERROR: SONAR_TOKEN not set"
-          exit 1
-        fi
-        if [ -z "$SONAR_HOST_URL" ]; then
-          echo "ERROR: SONAR_HOST_URL not set"
-          exit 1
-        fi
         sonar-scanner \
           -Dsonar.projectKey=audit-flow \
           -Dsonar.sources=src \
