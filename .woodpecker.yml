@@ -68,7 +68,7 @@ steps:
   sast:
     image: returntocorp/semgrep:latest
     commands:
-      - semgrep --config=auto --error --metrics=off .
+      - semgrep --config=p/security-audit --config=p/typescript --error .
     when:
       event: push
       branch: [main]
