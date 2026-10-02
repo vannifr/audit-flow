@@ -3,7 +3,7 @@ set -e
 
 echo "Running pre-commit checks..."
 
-# Fast, no network checks
 npm run verify
+npm run security:secrets:staged
 
 echo "✓ Pre-commit checks passed"

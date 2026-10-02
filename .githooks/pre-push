@@ -3,18 +3,6 @@ set -e
 
 echo "Running pre-push checks..."
 
-# Repeat verify (fast, no network)
-npm run verify
-
-# Security scan with graceful degradation
-if command -v gitleaks >/dev/null 2>&1; then
-  echo "Running gitleaks secret scan..."
-  gitleaks protect --staged -v . || {
-    echo "WARN: Gitleaks found potential secrets — review before pushing"
-    exit 1
-  }
-else
-  echo "WARN: Gitleaks not installed — skipping secret scan"
-fi
+npm run verify:full
 
 echo "✓ Pre-push checks passed"

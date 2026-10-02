@@ -16,7 +16,14 @@
     "lint": "eslint src --ext .ts",
     "verify": "npm run build && npm run test:coverage && npm run lint",
     "demo": "node demo/run-demo.js",
-    "hooks:install": "git config core.hooksPath .githooks"
+    "hooks:install": "git config core.hooksPath .githooks",
+    "security:deps": "sh scripts/ci/deps.sh",
+    "security:secrets": "sh scripts/ci/secrets.sh",
+    "security:secrets:staged": "sh scripts/ci/secrets-staged.sh",
+    "security:sast": "sh scripts/ci/sast.sh",
+    "security:licenses": "sh scripts/ci/licenses.sh",
+    "security": "npm run security:deps && npm run security:secrets && npm run security:sast && npm run security:licenses",
+    "verify:full": "npm run verify && npm run security"
   },
   "dependencies": {
     "@temporalio/activity": "^1.24.0",
@@ -31,7 +38,7 @@
   },
   "devDependencies": {
     "@cucumber/cucumber": "^13.2.1",
-    "@types/node": "^20.19.43",
+    "@types/node": "^22.20.5",
     "@types/uuid": "^9.0.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",

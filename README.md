@@ -138,36 +138,56 @@ Activities (19):
 # Unit tests
 npm run test
 
-# Coverage (65% threshold)
+# Coverage (enforced floor, see Coverage Thresholds)
 npm run test:coverage
 
-# Full verification
+# Fast gate: build, coverage, lint
 npm run verify
+
+# Everything CI checks (needs network, gitleaks, semgrep)
+npm run verify:full
 ```
 
-**Current Status:**
-- Tests: 171 passing
-- Coverage: 64%
-- Build: 0 errors
+Status figures (tests, coverage) come from the pipeline output, not from this file.
 
 ---
 
 ## Guardrails
 
-### Git Hooks
+### CI and local parity
 
-```bash
-# Pre-commit: build + test + lint
-# Pre-push: verify + gitleaks secret scanning
-```
+Each CI step calls the same npm script or `scripts/ci/*.sh` as local verification.
+
+| CI step | Local command | Notes |
+|---------|---------------|-------|
+| build, lint, test | `npm run verify` | Coverage gate fails when a threshold is breached |
+| secrets-scan | `npm run security:secrets` | Needs `gitleaks`; skipped with a warning locally, fails in CI if missing |
+| dependency-audit | `npm run security:deps` | Production dependencies, high and above, needs network |
+| license-check | `npm run security:licenses` | Needs network |
+| sast | `npm run security:sast` | Needs `semgrep` and network for rulesets |
+| sonarqube | none | Needs the SonarQube server; non-blocking, see deviations |
+
+Hooks (`npm run hooks:install` sets `core.hooksPath`): pre-commit runs `verify` and a staged
+secret scan; pre-push runs `verify:full`.
+
+**Known deviations and gaps**
+
+- SonarQube is non-blocking (owner: vannifr, deadline: 2026-11-01). Its quality gate fails on
+  coverage of new code. It cannot run locally without the server.
+- Development-dependency advisories (high) are not blocking; production dependencies are.
+- The `.feature` scenarios are not executed by `verify` or CI: the BDD runner loads no
+  step definitions for `specs/`. Tracked in `docs/review-report.md` (finding 12).
+- Lighthouse, axe and k6 are not CI steps. The earlier placeholder steps were removed
+  because they checked nothing.
+- CI images are pinned by digest. Bump them deliberately and update the digest.
 
 ### Coverage Thresholds
 
-Phase 1 interim:
-- Statements: 65%
-- Branches: 40%
-- Functions: 75%
-- Lines: 68%
+Enforced floor (vitest `thresholds`), raised as tests improve; the target is 80%:
+- Statements: 70%
+- Branches: 42%
+- Functions: 85%
+- Lines: 71%
 
 ---
 
@@ -263,7 +283,7 @@ This framework implements ISO/IEC 25010:2011 software quality characteristics as
 
 1. Follow CONSTITUTION.md governance
 2. TDD required - write tests first
-3. 65% coverage minimum
+3. Do not lower the coverage floor; raise it as coverage grows
 4. Run `npm run verify` before commit
 
 ---

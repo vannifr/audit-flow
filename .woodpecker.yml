@@ -1,123 +1,64 @@
-# Woodpecker CI configuration for audit-flow
-# https://woodpecker-ci.org/docs/usage/intro
-# CI/local parity: uses the same `npm run verify` command as local development
-# Hardened for enterprise-grade security audits - ALL steps block on failure
+# Woodpecker CI for audit-flow
+# Parity rule: every step calls the same npm script or sh script as local verification.
+# Local equivalents: npm run verify (build, test:coverage, lint) and npm run security.
+# Known gaps with a local equivalent that cannot run offline: see README "CI and local parity".
 
 when:
   event: [push, pull_request]
   branch: [main]
 
 steps:
-  # Phase 1: Install dependencies
   install:
-    image: node:22-alpine
+    image: node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402
     commands:
-      - npm ci --legacy-peer-deps
+      - npm ci
 
-  # Phase 2: Build
   build:
-    image: node:22-alpine
+    image: node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402
     commands:
       - npm run build
 
-  # Phase 3: Lint - BLOCK on errors
   lint:
-    image: node:22-alpine
+    image: node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402
     commands:
       - npm run lint
 
-  # Phase 4: Unit Tests with Coverage (80% threshold) - BLOCK on failure
   test:
-    image: node:22-alpine
+    image: node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402
     environment:
       NODE_ENV: test
     commands:
       - npm run test:coverage
 
-  # Phase 5: SonarQube analysis - warn on failures (coverage exception: 71% acceptable due to Temporal infrastructure)
+  secrets-scan:
+    image: zricethezav/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+    commands:
+      - sh scripts/ci/secrets.sh
+
+  dependency-audit:
+    image: node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402
+    commands:
+      - npm run security:deps
+
+  license-check:
+    image: node:22-alpine@sha256:0a7108bf6c7bf5de370ffb1a3ed6be93d405b43ff159f681a8d18c0e2bc2e402
+    commands:
+      - npm run security:licenses
+
+  sast:
+    image: returntocorp/semgrep@sha256:32e459968daabe7ab86968184a29109b9564aa00392401156f9788452b42786b
+    commands:
+      - sh scripts/ci/sast.sh
+
+  # Documented deviation (CONSTITUTION: a non-blocking gate needs owner and deadline).
+  # Owner: vannifr. Deadline: 2026-11-01. Cause: quality gate fails on coverage of new code.
   sonarqube:
-    image: sonarsource/sonar-scanner-cli:latest
+    image: sonarsource/sonar-scanner-cli@sha256:a3f4215076706c95a17a68c19322ee916e40a3acd081a8c1a1e839e0194afa57
+    failure: ignore
     environment:
       SONAR_HOST_URL:
         from_secret: sonar_host_url
       SONAR_TOKEN:
         from_secret: sonar_token
     commands:
-      - sonar-scanner -Dsonar.projectKey=audit-flow -Dsonar.sources=src -Dsonar.tests=src -Dsonar.test.inclusions=**/*.test.ts -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info -Dsonar.coverage.exclusions=**/*.test.ts,**/test/** -Dsonar.qualitygate.wait=true -Dsonar.qualitygate.timeout=300
-    failure: ignore
-
-  # Phase 6: Security - Secret scanning - BLOCK on secrets found
-  secrets-scan:
-    image: docker.io/zricethezav/gitleaks:latest
-    commands:
-      - gitleaks directory --verbose --redact=50 --exit-code 1 --gitleaks-ignore-path .gitleaksignore .
-
-  # Phase 7: Dependency security audit - warn on high vulnerabilities
-  dependency-audit:
-    image: node:22-alpine
-    commands:
-      - npm audit --audit-level=high
-    failure: ignore
-
-  # Phase 8: License compliance check - BLOCK on GPL/AGPL
-  license-check:
-    image: node:22-alpine
-    commands:
-      - npx -y license-checker --summary --failOn 'GPL;AGPL'
-
-  # Phase 9: SAST with Semgrep - warn on findings (demo directory excluded via .semgrepignore)
-  sast:
-    image: returntocorp/semgrep:latest
-    commands:
-      - semgrep --config=p/security-audit --config=p/typescript --error .
-    failure: ignore
-    when:
-      event: push
-      branch: [main]
-
-  # Phase 10: Coverage threshold verification
-  coverage-check:
-    image: node:22-alpine
-    commands:
-      - echo "Coverage threshold 80%+"
-
-  # Phase 11: NFR Testing - Performance (Lighthouse) - warn on failures
-  nfr-performance:
-    image: node:22-alpine
-    commands:
-      - npm install -g lighthouse
-      - echo "Lighthouse performance testing available in activities"
-    failure: ignore
-    when:
-      event: push
-      branch: [main]
-
-  # Phase 12: NFR Testing - Accessibility (axe-cli) - warn on failures
-  nfr-accessibility:
-    image: node:22-alpine
-    commands:
-      - npm install -g @axe-core/cli
-      - echo "axe-cli accessibility testing available in activities"
-    failure: ignore
-    when:
-      event: push
-      branch: [main]
-
-  # Phase 13: NFR Testing - Load Testing (k6) - warn on failures
-  nfr-load:
-    image: loadimpact/k6:latest
-    commands:
-      - echo "k6 load testing available in activities"
-    failure: ignore
-    when:
-      event: push
-      branch: [main]
-
-  # Phase 14: NFR Testing - SQL Injection (semgrep custom rules) - BLOCK on findings
-  nfr-sql-injection:
-    image: returntocorp/semgrep:latest
-    commands:
-      - semgrep --config=p/sql-injection --error .
-    when:
-      event: push
-      branch: [main]
+      - sonar-scanner -Dsonar.projectKey=audit-flow -Dsonar.sources=src -Dsonar.tests=tests -Dsonar.test.inclusions=**/*.test.ts -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info -Dsonar.coverage.exclusions=**/*.test.ts,**/test/**,**/tests/**,demo/** -Dsonar.exclusions=demo/** -Dsonar.qualitygate.wait=true -Dsonar.qualitygate.timeout=300
