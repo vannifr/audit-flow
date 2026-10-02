@@ -43,15 +43,7 @@ steps:
       SONAR_TOKEN:
         from_secret: sonar_token
     commands:
-      - sonar-scanner \
-          -Dsonar.projectKey=audit-flow \
-          -Dsonar.sources=src \
-          -Dsonar.tests=src \
-          -Dsonar.test.inclusions=**/*.test.ts \
-          -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info \
-          -Dsonar.coverage.exclusions=**/*.test.ts,**/test/** \
-          -Dsonar.qualitygate.wait=true \
-          -Dsonar.qualitygate.timeout=300
+      - sonar-scanner -Dsonar.projectKey=audit-flow -Dsonar.sources=src -Dsonar.tests=src -Dsonar.test.inclusions=**/*.test.ts -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info -Dsonar.coverage.exclusions=**/*.test.ts,**/test/** -Dsonar.qualitygate.wait=true -Dsonar.qualitygate.timeout=300
 
   # Phase 6: Security - Secret scanning - BLOCK on secrets found
   secrets-scan:
