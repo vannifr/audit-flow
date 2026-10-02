@@ -61,4 +61,4 @@ steps:
   coverage:
     image: node:22-alpine
     commands:
-      - echo "✅ Coverage threshold met: 65%+"
+      - echo "✅ Coverage threshold met: 65%+"# Updated at 2026-10-02T09:25:33+02:00
