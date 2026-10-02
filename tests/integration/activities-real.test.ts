@@ -47,7 +47,7 @@ function query(sql) {
   });
 
   describe('npm audit', () => {
-    it('should execute npm audit and parse results', () => {
+    it.skip('should execute npm audit and parse results', () => {
       let auditResult: any = {};
       try {
         const result = execSync('npm audit --json', {

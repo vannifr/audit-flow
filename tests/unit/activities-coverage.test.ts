@@ -234,8 +234,7 @@ describe('cloneRepository', () => {
     (fs.mkdirSync as any).mockImplementation(() => {});
   });
 
-  // Skip: Test fails due to testability issue - function uses require('child_process').spawn
-  // instead of mocked spawn. Fixing this requires refactoring production code which is out of scope.
+  // Skip: Test fails due to testability issue
   it.skip('should clone repository successfully', async () => {
     (childProcess.spawn as any).mockImplementation(() => {
       const onHandlers: Record<string, Function> = {};
