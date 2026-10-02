@@ -163,6 +163,10 @@ reports for the secret value; it does not appear.
   evidence records and the manifest, so it can be handed to a client or auditor and verified
   there.
 
+**Delivery note (decided 2026-10-02)**: FR-011 is delivered in part by this feature: records are
+written once, protected against change by ordinary means, and carry a retention date; storage that
+even an administrator cannot alter is a separate operational step. Reports state this limit.
+
 ### Key Entities
 
 - **Audit Run**: One execution of an audit against one source revision; has an overall outcome.

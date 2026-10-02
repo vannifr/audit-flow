@@ -8,7 +8,23 @@
       "Temporal Server": "server",
       "File System": "storage",
       "GitHub API": "external",
-      "Security Tools": "external"
+      "Security Tools": "external",
+      "Audit Client": "client",
+      "Verify CLI": "client",
+      "Audit Worker": "server",
+      "applicationAudit Workflow": "server",
+      "Scan Activities": "server",
+      "runTool Wrapper": "server",
+      "Redactor": "server",
+      "Evidence Store": "server",
+      "Temporal History": "storage",
+      "Private Work Dir": "storage",
+      "Evidence Bundle": "storage",
+      "Report File": "storage",
+      "Scanner CLIs": "external",
+      "Source Repository": "external",
+      "npm Registry": "external",
+      "Semgrep Registry": "external"
     }
   },
   "tdd_determination": "mandatory"
