@@ -78,3 +78,44 @@ steps:
     image: node:22-alpine
     commands:
       - echo "Coverage threshold 80%+"
+
+  # Phase 11: NFR Testing - Performance (Lighthouse) - warn on failures
+  nfr-performance:
+    image: node:22-alpine
+    commands:
+      - npm install -g lighthouse
+      - echo "Lighthouse performance testing available in activities"
+    failure: ignore
+    when:
+      event: push
+      branch: [main]
+
+  # Phase 12: NFR Testing - Accessibility (axe-cli) - warn on failures
+  nfr-accessibility:
+    image: node:22-alpine
+    commands:
+      - npm install -g @axe-core/cli
+      - echo "axe-cli accessibility testing available in activities"
+    failure: ignore
+    when:
+      event: push
+      branch: [main]
+
+  # Phase 13: NFR Testing - Load Testing (k6) - warn on failures
+  nfr-load:
+    image: loadimpact/k6:latest
+    commands:
+      - echo "k6 load testing available in activities"
+    failure: ignore
+    when:
+      event: push
+      branch: [main]
+
+  # Phase 14: NFR Testing - SQL Injection (semgrep custom rules) - BLOCK on findings
+  nfr-sql-injection:
+    image: returntocorp/semgrep:latest
+    commands:
+      - semgrep --config=p/sql-injection --error .
+    when:
+      event: push
+      branch: [main]
