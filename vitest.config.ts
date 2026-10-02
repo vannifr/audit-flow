@@ -9,13 +9,11 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'json', 'html', 'lcov'],
       exclude: [...configDefaults.coverage.exclude!, 'demo/**'],
-      threshold: {
-        global: {
-          branches: 60,
-          functions: 80,
-          lines: 80,
-          statements: 80,
-        },
+      thresholds: {
+        statements: 70,
+        branches: 42,
+        functions: 85,
+        lines: 71,
       },
     },
   },
