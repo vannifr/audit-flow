@@ -32,3 +32,5 @@ coverage/
 # Audit outputs
 /tmp/
 reports/
+# Demo run output
+demo/last-run.json

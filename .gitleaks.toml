@@ -1,0 +1,8 @@
+title = "audit-flow gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "demo/ bevat bewust geplante nep-secrets als grondwaarheid voor de audit-demo (zie demo/EXPECTED.md); geen echte sleutels"
+paths = ['''^demo/''']
