@@ -1,0 +1,13 @@
+# Semgrep ignore patterns
+# Exclude demo directory with intentional vulnerabilities
+demo/
+
+# Exclude test files
+tests/
+*.test.ts
+*.test.js
+
+# Exclude generated files
+node_modules/
+dist/
+coverage/
