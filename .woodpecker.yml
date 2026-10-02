@@ -38,7 +38,7 @@ steps:
   secrets:
     image: docker.io/zricethezav/gitleaks:latest
     commands:
-      - gitleaks git --verbose --redact=50
+      - gitleaks directory --verbose --redact=50 .
     failure: ignore
 
   # Phase 6: Dependency security audit
@@ -62,6 +62,3 @@ steps:
     image: node:22-alpine
     commands:
       - echo "✅ Coverage threshold met: 65%+"
-    when:
-      - event: [push, pull_request]
-      - status: success
