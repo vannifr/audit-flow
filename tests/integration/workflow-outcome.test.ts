@@ -180,6 +180,12 @@ describe('applicationAudit outcome rule (FR-001..FR-004, FR-016)', () => {
     expect(act('reviewCriticalPaths').mock.calls[0][0]).toBe(SOURCE.repoDir);
   });
 
+  it('passes the fetched source revision on to generateReport', async () => {
+    await applicationAudit(INPUT);
+
+    expect(reportInput().revision).toBe(SOURCE.revision);
+  });
+
   it('counts exit-because-issues-found as findings, not as a failure (TS-004)', async () => {
     const leaks = [finding('LEAK-1', 'gitleaks'), finding('LEAK-2', 'gitleaks')];
     harness.activities.runGitleaks = vi.fn(async () => step('gitleaks', 'completed', { cause: 'issues-found', findings: leaks }));

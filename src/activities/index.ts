@@ -21,6 +21,9 @@ import * as lifecycle from '../scan/lifecycle';
 import type { AuditRun, FetchedSource } from '../scan/lifecycle';
 import { defaultProcessRunner } from '../scan/process-runner';
 import { createEvidenceStore } from '../evidence/store';
+import { redactSecrets } from '../evidence/redact';
+import { renderOutcomeBlock } from '../report/outcome-block';
+import { walkSourceFiles, readSourceFile } from '../scan/safe-walk';
 import { validateRepoUrl } from '../scan/repo-url';
 import { createScanActivities } from '../scan/activities';
 import type { ScanActivities, ScanActivity } from '../scan/activities';
@@ -184,38 +187,27 @@ export async function detectTechStack(repoPath: string): Promise<TechStack> {
   }
 }
 
+const PII_PATTERNS = [
+  /\bemail\b/i,
+  /\bpassword\b/i,
+  /\bname\b/i,
+  /\baddress\b/i,
+  /\bphone\b/i,
+  /\bssn\b/i,
+];
+const PII_EXTENSIONS = ['.js', '.ts', '.jsx', '.tsx', '.py', '.go'];
+const PII_MAX_FILES = 50;
+const REVIEW_EXTENSIONS = ['.js', '.ts', '.jsx', '.tsx'];
+const REVIEW_MAX_FILES = 500;
+
 async function detectPII(repoPath: string, techStack: TechStack): Promise<void> {
-  const patterns = [
-    /\bemail\b/i,
-    /\bpassword\b/i,
-    /\bname\b/i,
-    /\baddress\b/i,
-    /\bphone\b/i,
-    /\bssn\b/i,
-  ];
-
-  // Check common file types for PII patterns
-  const extensions = ['.js', '.ts', '.jsx', '.tsx', '.py', '.go'];
-
-  // Limit to first 50 files for performance
-  const { stdout } = await execAsync(
-    `find ${repoPath} -type f \\( ${extensions
-      .map(ext => `-name "*${ext}"`)
-      .join(' -o ')} \\) | head -50`
-  );
-
-  const files = stdout.trim().split('\n').filter(Boolean);
-
+  const files = await walkSourceFiles(repoPath, { extensions: PII_EXTENSIONS, maxFiles: PII_MAX_FILES });
   for (const file of files) {
-    if (!existsSync(file)) continue;
-
-    const content = readFileSync(file, 'utf-8');
-
-    for (const pattern of patterns) {
-      if (pattern.test(content)) {
-        techStack.hasPII = true;
-        return;
-      }
+    const content = await readSourceFile(file.absolute);
+    if (content === null) continue;
+    if (PII_PATTERNS.some((pattern) => pattern.test(content))) {
+      techStack.hasPII = true;
+      return;
     }
   }
 }
@@ -271,6 +263,35 @@ export async function generateScopeDocument(
 
 // ==================== CODE REVIEW ACTIVITY ====================
 
+interface ReviewPattern {
+  pattern: RegExp;
+  name: string;
+  severity: 'P0' | 'P1';
+  secret: boolean;
+}
+
+const REVIEW_PATTERNS: ReviewPattern[] = [
+  { pattern: /(password\s*[=:]\s*['"])([^'"\r\n]+)(['"])/gi, name: 'Hardcoded password', severity: 'P0', secret: true },
+  { pattern: /(api[_-]?key\s*[=:]\s*['"])([^'"\r\n]+)(['"])/gi, name: 'Hardcoded API key', severity: 'P0', secret: true },
+  { pattern: /(secret\s*[=:]\s*['"])([^'"\r\n]+)(['"])/gi, name: 'Hardcoded secret', severity: 'P0', secret: true },
+  { pattern: /eval\s*\(/g, name: 'eval() usage', severity: 'P1', secret: false },
+  { pattern: /innerHTML\s*=/g, name: 'innerHTML assignment', severity: 'P1', secret: false },
+  { pattern: /document\.write\s*\(/g, name: 'document.write() usage', severity: 'P1', secret: false },
+];
+
+function lineOf(content: string, index: number): number {
+  let line = 1;
+  for (let i = 0; i < index; i++) {
+    if (content.charCodeAt(i) === 10) line++;
+  }
+  return line;
+}
+
+function safeFragment(match: RegExpMatchArray, secret: boolean): string {
+  const raw = secret ? `${match[1]}[REDACTED]${match[3]}` : match[0];
+  return redactSecrets(raw).text;
+}
+
 export async function reviewCriticalPaths(
   repoPath: string,
   criticalPaths: string[],
@@ -280,50 +301,45 @@ export async function reviewCriticalPaths(
 
   logger.info({ criticalPaths, checklist }, 'Reviewing critical paths');
 
-  // Scan files in critical paths for security patterns
-  const patterns = [
-    { pattern: /password\s*[=:]\s*['"]\w+['"]/gi, name: 'Hardcoded password', severity: 'P0' as const },
-    { pattern: /api[_-]?key\s*[=:]\s*['"][^'"]+['"]/gi, name: 'Hardcoded API key', severity: 'P0' as const },
-    { pattern: /secret\s*[=:]\s*['"][^'"]+['"]/gi, name: 'Hardcoded secret', severity: 'P0' as const },
-    { pattern: /eval\s*\(/g, name: 'eval() usage', severity: 'P1' as const },
-    { pattern: /innerHTML\s*=/g, name: 'innerHTML assignment', severity: 'P1' as const },
-    { pattern: /document\.write\s*\(/g, name: 'document.write() usage', severity: 'P1' as const },
-  ];
-
-  // Find matching files
   for (const pathPattern of criticalPaths) {
     try {
-      const files = await findMatchingFiles(repoPath, pathPattern);
+      const needle = pathPattern.toLowerCase();
+      const files = await walkSourceFiles(repoPath, {
+        extensions: REVIEW_EXTENSIONS,
+        maxFiles: REVIEW_MAX_FILES,
+        filter: (relative) => relative.toLowerCase().includes(needle),
+      });
 
       for (const file of files) {
-        const content = readFileSync(file, 'utf-8');
-        const relativePath = file.replace(repoPath, '');
+        const content = await readSourceFile(file.absolute);
+        if (content === null) continue;
 
-        for (const { pattern, name, severity } of patterns) {
-          const matches = content.match(pattern);
-          if (matches) {
-            findings.push({
-              id: `REVIEW-${findings.length + 1}`,
-              title: name,
-              description: `Found ${matches.length} occurrence(s) in ${relativePath}`,
-              severity,
-              category: 'security-code-review',
-              evidence: [{
-                type: 'code-review',
-                file: relativePath,
-                content: matches.slice(0, 3).join('\n'),
-                tool: 'code-review',
-                timestamp: new Date(),
-              }],
-              remediation: {
-                description: `Review and fix ${name.toLowerCase()} issues`,
-                effort: 'hours',
-                priority: severity === 'P0' ? 'immediate' : 'short-term',
-              },
-              verified: false,
-              createdAt: new Date(),
-            });
-          }
+        for (const { pattern, name, severity, secret } of REVIEW_PATTERNS) {
+          const matches = [...content.matchAll(pattern)];
+          if (matches.length === 0) continue;
+          const line = lineOf(content, matches[0].index ?? 0);
+          findings.push({
+            id: `REVIEW-${findings.length + 1}`,
+            title: name,
+            description: `Found ${matches.length} occurrence(s) in ${file.relative}, first at line ${line}`,
+            severity,
+            category: 'security-code-review',
+            evidence: [{
+              type: 'code-review',
+              file: file.relative,
+              line,
+              content: matches.slice(0, 3).map((m) => safeFragment(m, secret)).join('\n'),
+              tool: 'code-review',
+              timestamp: new Date(),
+            }],
+            remediation: {
+              description: `Review and fix ${name.toLowerCase()} issues`,
+              effort: 'hours',
+              priority: severity === 'P0' ? 'immediate' : 'short-term',
+            },
+            verified: false,
+            createdAt: new Date(),
+          });
         }
       }
     } catch (error) {
@@ -333,36 +349,6 @@ export async function reviewCriticalPaths(
 
   logger.info({ count: findings.length }, 'Code review completed');
   return findings;
-}
-
-async function findMatchingFiles(basePath: string, pattern: string): Promise<string[]> {
-  const results: string[] = [];
-
-  async function scan(dir: string): Promise<void> {
-    const entries = await fs.readdir(dir, { withFileTypes: true });
-
-    for (const entry of entries) {
-      const fullPath = path.join(dir, entry.name);
-
-      if (entry.isDirectory()) {
-        if (!entry.name.startsWith('.') && entry.name !== 'node_modules') {
-          await scan(fullPath);
-        }
-      } else if (entry.isFile() && /\.(js|ts|jsx|tsx)$/.test(entry.name)) {
-        if (fullPath.toLowerCase().includes(pattern.toLowerCase())) {
-          results.push(fullPath);
-        }
-      }
-    }
-  }
-
-  try {
-    await scan(basePath);
-  } catch (error) {
-    // Ignore scan errors
-  }
-
-  return results;
 }
 
 // ==================== COMPLIANCE MAPPING ACTIVITY ====================
@@ -449,6 +435,7 @@ export async function generateReport(input: {
   outcome?: AuditOutcome;
   notPerformed?: NotPerformed[];
   scanners?: ScannerStatusEntry[];
+  revision?: string | null;
 }): Promise<{ reportPath: string; evidencePath: string }> {
   const baseDir = input.outputDir || path.join('/tmp', `audit-${input.workflowId}`);
   const reportPath = path.join(baseDir, 'audit-report.md');
@@ -463,12 +450,26 @@ export async function generateReport(input: {
 
   writeFileSync(reportPath, report);
 
-  // Save evidence files
   for (const finding of input.findings) {
     for (const evidence of finding.evidence) {
       const fileName = path.join(evidencePath, `${finding.id}.json`);
-      writeFileSync(fileName, JSON.stringify(evidence, null, 2));
+      const safe = {
+        ...evidence,
+        content: redactSecrets(evidence.content).text,
+        ...(evidence.file === undefined ? {} : { file: redactSecrets(evidence.file).text }),
+      };
+      writeFileSync(fileName, JSON.stringify(safe, null, 2));
     }
+  }
+
+  if (input.outcome !== undefined || input.scanners !== undefined) {
+    const status = {
+      outcome: input.outcome,
+      notPerformed: input.notPerformed ?? [],
+      scanners: input.scanners ?? [],
+      revision: input.revision ?? null,
+    };
+    writeFileSync(path.join(evidencePath, 'scanner-status.json'), JSON.stringify(status, null, 2));
   }
 
   logger.info({ reportPath, findingCount: input.findings.length }, 'Report generated');
@@ -476,13 +477,45 @@ export async function generateReport(input: {
   return { reportPath, evidencePath };
 }
 
-function generateMarkdownReport(input: any): string {
+interface ReportInput {
+  repoUrl: string;
+  workflowId: string;
+  techStack: TechStack;
+  scope: ScopeDocument;
+  findings: Finding[];
+  complianceMaps: ComplianceMap[];
+  outcome?: AuditOutcome;
+  notPerformed?: NotPerformed[];
+  scanners?: ScannerStatusEntry[];
+  revision?: string | null;
+}
+
+function generateMarkdownReport(input: ReportInput): string {
   const p0Count = input.findings.filter((f: Finding) => f.severity === 'P0').length;
   const p1Count = input.findings.filter((f: Finding) => f.severity === 'P1').length;
   const p2Count = input.findings.filter((f: Finding) => f.severity === 'P2').length;
   const p3Count = input.findings.filter((f: Finding) => f.severity === 'P3').length;
+  const riskLevel =
+    p0Count > 0
+      ? 'CRITICAL'
+      : p1Count > 0
+        ? 'HIGH'
+        : p2Count > 0
+          ? 'MEDIUM'
+          : input.outcome === 'incomplete'
+            ? 'UNDETERMINED (audit incomplete)'
+            : 'LOW';
 
-  return `# Audit Report
+  const outcomeBlock = renderOutcomeBlock({
+    outcome: input.outcome,
+    notPerformed: input.notPerformed,
+    scanners: input.scanners,
+    revision: input.revision,
+    findingCount: input.findings.length,
+  });
+
+  const report = `${outcomeBlock}
+# Audit Report
 
 **Repository:** ${input.repoUrl}
 **Workflow ID:** ${input.workflowId}
@@ -490,7 +523,7 @@ function generateMarkdownReport(input: any): string {
 
 ## Executive Summary
 
-- **Risk Level:** ${p0Count > 0 ? 'CRITICAL' : p1Count > 0 ? 'HIGH' : p2Count > 0 ? 'MEDIUM' : 'LOW'}
+- **Risk Level:** ${riskLevel}
 - **Critical (P0):** ${p0Count}
 - **High (P1):** ${p1Count}
 - **Medium (P2):** ${p2Count}
@@ -514,6 +547,7 @@ ${input.complianceMaps.map((cm: ComplianceMap) => `### ${cm.framework}\n\nScore:
 
 ## Generated by Temporal Audit Workflow
 `;
+  return redactSecrets(report).text;
 }
 
 // ==================== PERFORMANCE ACTIVITY (Lighthouse) ====================

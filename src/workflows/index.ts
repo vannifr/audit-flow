@@ -240,6 +240,7 @@ export async function applicationAudit(input: AuditInput): Promise<AuditResult> 
       outcome: decision.outcome,
       notPerformed: decision.notPerformed,
       scanners,
+      revision: source.revision,
     });
 
     state.currentPhase = 'completed';

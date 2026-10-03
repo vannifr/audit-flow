@@ -1,0 +1,208 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { generateReport } from '../../src/activities/index';
+import type { Finding, TechStack, ScopeDocument, ReviewResult } from '../../src/types';
+import type { NotPerformed, ScannerStatusEntry } from '../../src/scan/status';
+
+let out: string;
+
+beforeEach(async () => {
+  out = await mkdtemp(path.join(tmpdir(), 'report-'));
+});
+
+afterEach(async () => {
+  await rm(out, { recursive: true, force: true });
+});
+
+const techStack: TechStack = { language: 'nodejs', frameworks: ['Express'], hasPayments: false, hasPII: false, packageManager: 'npm' };
+const scope: ScopeDocument = {
+  repoUrl: 'https://github.com/o/r',
+  techStack,
+  securityLevel: 1,
+  frameworks: ['OWASP-ASVS'],
+  inScope: [],
+  outOfScope: [],
+  createdAt: new Date(),
+};
+const reviewResult: ReviewResult = { falsePositives: [], severityCorrections: [], missingFindings: [], reviewNotes: '' };
+
+function finding(id: string, title: string, severity: Finding['severity'] = 'P1'): Finding {
+  return {
+    id,
+    title,
+    description: 'd',
+    severity,
+    category: 'security-code-review',
+    evidence: [{ type: 'code-review', file: 'a.js', line: 1, content: 'eval(', tool: 'code-review', timestamp: new Date() }],
+    remediation: { description: 'r', effort: 'hours', priority: 'short-term' },
+    verified: false,
+    createdAt: new Date(),
+  };
+}
+
+function entry(scanner: ScannerStatusEntry['scanner'], overrides: Partial<ScannerStatusEntry> = {}): ScannerStatusEntry {
+  return {
+    scanner,
+    required: scanner !== 'code-review',
+    status: 'completed',
+    heuristic: scanner === 'code-review',
+    toolVersion: scanner === 'code-review' ? null : '1.2.3',
+    findingCount: 0,
+    evidenceRecordIds: [],
+    ...overrides,
+  };
+}
+
+const ALL_COMPLETED: ScannerStatusEntry[] = [
+  entry('gitleaks'),
+  entry('semgrep'),
+  entry('npm-audit'),
+  entry('license-check'),
+  entry('code-review'),
+];
+
+async function render(extra: Record<string, unknown>, findings: Finding[] = []): Promise<string> {
+  const result = await generateReport({
+    repoUrl: 'https://github.com/o/r',
+    workflowId: 'wf-1',
+    techStack,
+    scope,
+    findings,
+    complianceMaps: [],
+    reviewResult,
+    outputDir: out,
+    ...extra,
+  });
+  return readFile(result.reportPath, 'utf-8');
+}
+
+describe('report outcome block (FR-016, TS-007)', () => {
+  it('starts with the plain-text outcome on line 1', async () => {
+    const report = await render({ outcome: 'complete', notPerformed: [], scanners: ALL_COMPLETED });
+    expect(report.split('\n')[0]).toBe('Audit outcome: COMPLETE');
+    const incomplete = await render({ outcome: 'incomplete', notPerformed: [], scanners: ALL_COMPLETED });
+    expect(incomplete.split('\n')[0]).toBe('Audit outcome: INCOMPLETE');
+  });
+
+  it('puts the status block before the first finding', async () => {
+    const report = await render(
+      { outcome: 'complete', notPerformed: [], scanners: ALL_COMPLETED },
+      [finding('REVIEW-1', 'eval() usage')],
+    );
+    const table = report.indexOf('| Scanner | Required | Status | Cause | Heuristic | Findings | Tool version |');
+    const first = report.indexOf('REVIEW-1');
+    expect(table).toBeGreaterThan(0);
+    expect(first).toBeGreaterThan(table);
+    expect(report.indexOf('Audit outcome:')).toBeLessThan(table);
+  });
+
+  it('lists two not-performed scanners with status and cause when incomplete', async () => {
+    const notPerformed: NotPerformed[] = [
+      { scanner: 'gitleaks', status: 'unavailable', cause: 'not-installed', summary: 'Required scanner gitleaks was not available (not-installed); its area is not verified.' },
+      { scanner: 'semgrep', status: 'failed', cause: 'timeout', summary: 'Required scanner semgrep failed (timeout); its area is not verified.' },
+    ];
+    const scanners = [
+      entry('gitleaks', { status: 'unavailable', cause: 'not-installed', toolVersion: null }),
+      entry('semgrep', { status: 'failed', cause: 'timeout' }),
+      entry('npm-audit'),
+    ];
+    const report = await render({ outcome: 'incomplete', notPerformed, scanners });
+    expect(report).toContain('Not performed');
+    expect(report).toContain('- gitleaks: unavailable, not-installed');
+    expect(report).toContain('- semgrep: failed, timeout');
+    const notPerformedAt = report.indexOf('Not performed');
+    expect(notPerformedAt).toBeGreaterThan(report.indexOf('Audit outcome: INCOMPLETE'));
+    expect(notPerformedAt).toBeLessThan(report.indexOf('| Scanner |'));
+    expect(report).toContain('| gitleaks | yes | unavailable | not-installed | no | 0 | n/a |');
+    expect(report).toContain('| semgrep | yes | failed | timeout | no | 0 | 1.2.3 |');
+  });
+
+  it('shows No findings with the completed scanners when complete and empty', async () => {
+    const report = await render({ outcome: 'complete', notPerformed: [], scanners: ALL_COMPLETED });
+    expect(report).toContain('No findings');
+    expect(report).toMatch(/Completed scanners: .*gitleaks.*semgrep.*npm-audit.*license-check.*code-review/);
+  });
+
+  it('never says No findings when incomplete', async () => {
+    const notPerformed: NotPerformed[] = [
+      { scanner: 'gitleaks', status: 'failed', cause: 'tool-error', summary: 'x' },
+    ];
+    const report = await render({
+      outcome: 'incomplete',
+      notPerformed,
+      scanners: [entry('gitleaks', { status: 'failed', cause: 'tool-error' }), entry('semgrep')],
+    });
+    expect(report.toLowerCase()).not.toContain('no findings');
+    expect(report).not.toContain('Risk Level:** LOW');
+  });
+
+  it('lists findings and completed scanners when complete with findings, without No findings', async () => {
+    const report = await render(
+      { outcome: 'complete', notPerformed: [], scanners: [entry('semgrep', { findingCount: 1 }), entry('gitleaks')] },
+      [finding('SEM-1', 'sql injection', 'P0')],
+    );
+    expect(report).not.toContain('No findings');
+    expect(report).toContain('Completed scanners: semgrep, gitleaks');
+    expect(report).toContain('| SEM-1 | sql injection | P0 |');
+  });
+
+  it('marks heuristic scanners as heuristic', async () => {
+    const report = await render({ outcome: 'complete', notPerformed: [], scanners: ALL_COMPLETED });
+    expect(report).toContain('| code-review | no | completed | - | heuristic | 0 | n/a |');
+    expect(report).toContain('| gitleaks | yes | completed | - | no | 0 | 1.2.3 |');
+  });
+
+  it('shows the source revision when known and omits it otherwise', async () => {
+    const known = await render({ outcome: 'complete', notPerformed: [], scanners: ALL_COMPLETED, revision: 'a'.repeat(40) });
+    expect(known).toContain(`Source revision: ${'a'.repeat(40)}`);
+    expect(known.indexOf('Source revision:')).toBeGreaterThan(known.indexOf('| Scanner |'));
+    expect(known.indexOf('Source revision:')).toBeLessThan(known.indexOf('# Audit Report'));
+    const unknown = await render({ outcome: 'complete', notPerformed: [], scanners: ALL_COMPLETED });
+    expect(unknown).not.toContain('Source revision');
+  });
+
+  it('falls back to UNKNOWN for callers that pass no status fields', async () => {
+    const report = await render({}, [finding('REVIEW-1', 'eval() usage')]);
+    expect(report.split('\n')[0]).toBe('Audit outcome: UNKNOWN (scanner status not provided)');
+    expect(report).toContain('# Audit Report');
+    expect(report).toContain('| REVIEW-1 | eval() usage | P1 |');
+    expect(report).not.toContain('| Scanner |');
+    expect(report.toLowerCase()).not.toContain('no findings');
+  });
+
+  it('does not leak secret values into the report or evidence', async () => {
+    const leaky = finding('REVIEW-1', 'Hardcoded password');
+    leaky.evidence[0].content = 'password = "admin1234" AKIAIOSFODNN7EXAMPLE';
+    const report = await render(
+      { outcome: 'complete', notPerformed: [], scanners: ALL_COMPLETED, repoUrl: 'https://user:hunter2hunter2@github.com/o/r' },
+      [leaky],
+    );
+    const evidence = await readFile(path.join(out, 'evidence', 'REVIEW-1.json'), 'utf-8');
+    for (const text of [report, evidence]) {
+      expect(text).not.toContain('admin1234');
+      expect(text).not.toContain('AKIAIOSFODNN7EXAMPLE');
+      expect(text).not.toContain('hunter2hunter2');
+    }
+  });
+
+  it('keeps the evidence json consistent with the report', async () => {
+    const notPerformed: NotPerformed[] = [{ scanner: 'gitleaks', status: 'unavailable', cause: 'not-installed', summary: 's' }];
+    const scanners = [entry('gitleaks', { status: 'unavailable', cause: 'not-installed' })];
+    await render({ outcome: 'incomplete', notPerformed, scanners, revision: 'b'.repeat(40) }, [finding('REVIEW-1', 'eval() usage')]);
+    const files = await readdir(path.join(out, 'evidence'));
+    expect(files).toContain('REVIEW-1.json');
+    expect(files).toContain('scanner-status.json');
+    const status = JSON.parse(await readFile(path.join(out, 'evidence', 'scanner-status.json'), 'utf-8'));
+    expect(status.outcome).toBe('incomplete');
+    expect(status.notPerformed).toEqual(notPerformed);
+    expect(status.scanners).toEqual(scanners);
+    expect(status.revision).toBe('b'.repeat(40));
+  });
+
+  it('keeps writing no scanner-status.json for callers without status fields', async () => {
+    await render({});
+    expect(await readdir(path.join(out, 'evidence'))).not.toContain('scanner-status.json');
+  });
+});

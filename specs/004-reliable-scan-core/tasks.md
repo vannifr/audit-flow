@@ -96,11 +96,11 @@ each marked `superseded by FR-xxx` in the commit body. No adapters with the old 
   - Tier B. Consumes: T013, research R6. Produces: `ScanStepResult` for semgrep. Supersedes old semgrep tests.
 - [x] T020 [US1] Replace the `npx license-checker` call by an in-process license check from the lockfile to pass [TS-005] in `src/scan/tools/licenses.ts`
   - Tier C (removes code execution from the audited source). Consumes: R14. Produces: `ScanStepResult` for license check.
-- [ ] T021 [P] [US1] Migrate `reviewCriticalPaths`, `detectPII` and `checkToolRequirements` off `exec`; label code review as heuristic, make npm not required in `src/scan/tools/review.ts`
+- [x] T021 [P] [US1] Migrate `reviewCriticalPaths`, `detectPII` and `checkToolRequirements` off `exec`; label code review as heuristic, make npm not required in `src/scan/tools/review.ts`
   - Tier B. Consumes: T013. Produces: findings without secrets.
 - [x] T022 [US1] Add `settle`, the outcome guard and additive `AuditResult` fields to the workflow so a failed or missing scanner yields INCOMPLETE, and a source failure ends early [TS-001, TS-002, TS-003, TS-006, TS-011] in `src/workflows/index.ts`
   - Tier C (the outcome rule is the core of principle VII). Consumes: T007, T018, T019, T020. Produces: `AuditResult.outcome`.
-- [ ] T023 [US1] Put outcome and scanner status table at the top of the report [TS-007] in `src/activities/index.ts` (`generateReport`) and `src/scan/report.ts`
+- [x] T023 [US1] Put outcome and scanner status table at the top of the report [TS-007] in `src/activities/index.ts` (`generateReport`) and `src/scan/report.ts`
   - Tier B. Consumes: T022. Produces: report layout per FR-016.
 - [ ] T024 [US1] Write step definitions for `honest-scan-outcome.feature` and run them green in `specs/004-reliable-scan-core/tests/step_definitions/honest-scan-outcome.steps.ts` [TS-001, TS-002, TS-003, TS-004, TS-005, TS-006, TS-007, TS-008, TS-009, TS-010, TS-011]
   - Tier B. Consumes: T003. Rule: no tautological steps; each Then asserts on real output.
