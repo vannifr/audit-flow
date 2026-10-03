@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Renamed the project to Tessera (package, repository, Sonar key, CI).
+- SonarQube quality gate is blocking again: 125 new violations fixed without behavior change (differential test on 174k inputs, 40 of 42 mutations killed, 2 equivalent); one accepted issue, see README. The 2026-11-01 deviation is closed.
+- `tests/unit/security.test.ts` is parameterized (same 21 cases); skipped tests carry cause and owner; the k6 throughput check uses a private temp directory.
+
 ## v0.2.0 (2026-10-03): scan core with an honest outcome, evidence and signing (Tessera, feature 004)
 
 Assurance level 1 for the scan core. Not production ready; see `docs/review-report.md`, `docs/assurance-roadmap.md`

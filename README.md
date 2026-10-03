@@ -204,15 +204,14 @@ Each CI step calls the same npm script or `scripts/ci/*.sh` as local verificatio
 | dependency-audit | `npm run security:deps` | Production dependencies, high and above, needs network |
 | license-check | `npm run security:licenses` | Needs network |
 | sast | `npm run security:sast` | Needs `semgrep` and network for rulesets |
-| sonarqube | none | Needs the SonarQube server; non-blocking, see deviations |
+| sonarqube | none | Needs the SonarQube server; blocking in CI (gate must be OK) |
 
 Hooks (`npm run hooks:install` sets `core.hooksPath`): pre-commit runs `verify` and a staged
 secret scan; pre-push runs `verify:full`.
 
 **Known deviations and gaps**
 
-- SonarQube is non-blocking (owner: vannifr, deadline: 2026-11-01). Its quality gate fails on
-  coverage of new code. It cannot run locally without the server.
+- SonarQube blocks in CI since 2026-10-03 (gate OK, 0 new violations). It cannot run locally without the server. One accepted issue: `Sha256Hex` in `src/evidence/types.ts` mirrors the spec contract (marked won't fix in Sonar with that reason, owner vannifr).
 - Development-dependency advisories (high) are not blocking; production dependencies are.
 - The `.feature` scenarios are not executed by `verify` or CI: the BDD runner loads no
   step definitions for `specs/`. Tracked in `docs/review-report.md` (finding 12).

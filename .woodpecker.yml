@@ -50,11 +50,8 @@ steps:
     commands:
       - sh scripts/ci/sast.sh
 
-  # Documented deviation (CONSTITUTION: a non-blocking gate needs owner and deadline).
-  # Owner: vannifr. Deadline: 2026-11-01. Cause: quality gate fails on coverage of new code.
   sonarqube:
     image: sonarsource/sonar-scanner-cli@sha256:a3f4215076706c95a17a68c19322ee916e40a3acd081a8c1a1e839e0194afa57
-    failure: ignore
     environment:
       SONAR_HOST_URL:
         from_secret: sonar_host_url
