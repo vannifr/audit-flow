@@ -22,7 +22,7 @@ const TABLE_HEADER = '| Scanner | Required | Status | Cause | Heuristic | Findin
 const TABLE_RULE = '|---------|----------|--------|-------|-----------|----------|--------------|';
 
 function cell(value: string): string {
-  return value.replace(/[\r\n]+/g, ' ').replace(/\|/g, '/');
+  return value.replaceAll(/[\r\n]+/g, ' ').replaceAll(/\|/g, '/');
 }
 
 function scannerRow(entry: ScannerStatusEntry): string {
@@ -39,13 +39,13 @@ function scannerRow(entry: ScannerStatusEntry): string {
 }
 
 function shellArg(value: string): string {
-  return /^[A-Za-z0-9._/:=+-]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`;
+  const escaped = value.replaceAll("'", String.raw`'\''`);
+  return /^[A-Za-z0-9._/:=+-]+$/.test(value) ? value : `'${escaped}'`;
 }
 
 function validSignature(signature: ReportSignature | undefined): signature is ReportSignature & { keyId: string; signedAt: string } {
   return (
-    signature !== undefined &&
-    signature.signed === true &&
+    signature?.signed === true &&
     signature.level === 1 &&
     typeof signature.keyId === 'string' &&
     /^[0-9a-f]{64}$/.test(signature.keyId) &&

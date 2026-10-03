@@ -51,7 +51,7 @@ type Node =
   | { op: 'and' | 'or'; items: Node[] };
 
 function clean(text: string, max: number): string {
-  const flat = Array.from(text, (ch) => (ch.charCodeAt(0) < 32 || ch.charCodeAt(0) === 127 ? ' ' : ch)).join('');
+  const flat = Array.from(text, (ch) => ((ch.codePointAt(0) ?? 0) < 32 || (ch.codePointAt(0) ?? 0) === 127 ? ' ' : ch)).join('');
   const redacted = redactSecrets(flat).text;
   return redacted.length > max ? `${redacted.slice(0, max - 3)}...` : redacted;
 }
@@ -132,7 +132,7 @@ function licenseText(value: unknown): string | null {
     if (parts.length === 0) return null;
     return parts.map((p) => (/\s/.test(p) ? `(${p})` : p)).join(' OR ');
   }
-  if (typeof value === 'object' && value !== null && Object.prototype.hasOwnProperty.call(value, 'type')) {
+  if (typeof value === 'object' && value !== null && Object.hasOwn(value, 'type')) {
     return licenseText((value as { type: unknown }).type);
   }
   return null;
@@ -153,7 +153,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function ownString(obj: Record<string, unknown>, key: string): string | undefined {
-  if (!Object.prototype.hasOwnProperty.call(obj, key)) return undefined;
+  if (!Object.hasOwn(obj, key)) return undefined;
   const v = obj[key];
   return typeof v === 'string' ? v : undefined;
 }
@@ -171,11 +171,11 @@ function assess(packages: Record<string, unknown>): Assessment {
       result.malformed++;
       continue;
     }
-    if (Object.prototype.hasOwnProperty.call(entry, 'link') && entry.link === true) continue;
+    if (Object.hasOwn(entry, 'link') && entry.link === true) continue;
     result.packages++;
     const name = packageName(key);
     const version = ownString(entry, 'version') ?? 'unknown';
-    const license = Object.prototype.hasOwnProperty.call(entry, 'license') ? licenseText(entry.license) : null;
+    const license = Object.hasOwn(entry, 'license') ? licenseText(entry.license) : null;
     if (license === null) {
       result.missing.push(name);
     } else if (isViolation(license)) {
@@ -259,9 +259,9 @@ async function evaluate(repoDir: string): Promise<Outcome> {
   if (!isRecord(doc)) {
     return { status: 'failed', cause: 'parse-error', causeDetail: `${lockfileName} is not a JSON object`, inputs, lockfileName };
   }
-  const version = Object.prototype.hasOwnProperty.call(doc, 'lockfileVersion') ? doc.lockfileVersion : undefined;
+  const version = Object.hasOwn(doc, 'lockfileVersion') ? doc.lockfileVersion : undefined;
   if (version === 1) {
-    const deps = Object.prototype.hasOwnProperty.call(doc, 'dependencies') && isRecord(doc.dependencies) ? doc.dependencies : {};
+    const deps = Object.hasOwn(doc, 'dependencies') && isRecord(doc.dependencies) ? doc.dependencies : {};
     inputs.packages = String(Object.keys(deps).length);
     return {
       status: 'partial',
@@ -281,7 +281,7 @@ async function evaluate(repoDir: string): Promise<Outcome> {
       lockfileName,
     };
   }
-  const packages = Object.prototype.hasOwnProperty.call(doc, 'packages') ? doc.packages : undefined;
+  const packages = Object.hasOwn(doc, 'packages') ? doc.packages : undefined;
   if (!isRecord(packages)) {
     return { status: 'failed', cause: 'parse-error', causeDetail: `${lockfileName} has no packages object`, inputs, lockfileName };
   }
