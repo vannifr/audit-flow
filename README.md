@@ -1,10 +1,46 @@
-# Temporal Security Audit Framework
+# Tessera (audit-flow)
 
 > Enterprise-grade application security audit framework powered by Temporal.io
 
 **Version:** 1.0.0
-**Status:** Production Ready
-**Last Updated:** 2026-10-02
+**Status:** not production ready. The scan core (feature 004) reaches assurance level 1; see `docs/assurance-roadmap.md` and `docs/review-report.md` for what is still open
+**Last Updated:** 2026-10-03
+
+---
+
+## Scan core: honest outcome and evidence (feature 004)
+
+An audit now ends in `COMPLETE` or `INCOMPLETE`. A required scanner that is missing, failed, partial or skipped makes the
+audit `INCOMPLETE` and the report names it; "No findings" is only printed when every required scanner completed.
+
+- Scanner statuses: `completed`, `partial`, `failed`, `skipped`, `unavailable`, each with a cause.
+- Scans run through one tool runner (no shell, argument arrays, environment allow-list, timeouts, output caps).
+- Every executed step writes an evidence record; the run's evidence is one folder with a manifest, hash chain,
+  `SHA256SUMS`, a root hash and, with a signing key, a signature. The report shows the outcome block, the scanner table,
+  the source revision, the evidence location and a computed assurance level (0 or 1).
+- Scanner steering files in the audited source (ignore files, scanner configs, inline markers) are neutralized in the private
+  working copy and every attempt is recorded. Secrets are redacted before they reach evidence, results, reports or logs.
+
+Commands:
+
+```bash
+npm run evidence:keygen -- ~/.config/tessera/signing/ed25519.pem    # one-time signing key (kept outside the evidence folder)
+npm run evidence:verify -- <bundle> --expect-root <sha256> --pubkey <key>.pub   # exit 0 only when hashes and signature are valid
+npm run demo                  # end-to-end run on the demo apps with a release gate
+npm run test:bdd:done         # BDD scenarios of the finished stories
+npm run test:tools            # contract tests with the real tools (needs gitleaks, semgrep, npm)
+```
+
+Environment: `TESSERA_EVIDENCE_ROOT` (default `~/.local/share/tessera/evidence`), `TESSERA_SIGNING_KEY` (default
+`~/.config/tessera/signing/ed25519.pem`), `TESSERA_REQUIRE_SIGNATURE=1` (an audit without a valid signature is `INCOMPLETE`),
+`TESSERA_PRODUCT_NAME` (name in the report title, default `Tessera`), `TESSERA_MAX_OUTPUT_MB`.
+
+Limits you should state to a client: the signing key lives on the worker host, so this is assurance level 1, not an
+independent attestation; the signing time is the host clock; code review is a heuristic and not a required scanner;
+folders inside a sealed bundle are not read-only at storage level (roadmap items 010 and 013).
+
+Measured on the demo (`npm run demo`, 18 planted defects): strict recall 8 of 18 (6 before), correct severity 5 of 18
+(3 before), false positives on the clean app 0 (1 before). Details and the gaps: `demo/EXPECTED.md`.
 
 ---
 
@@ -187,16 +223,16 @@ secret scan; pre-push runs `verify:full`.
 ### Coverage Thresholds
 
 Enforced floor (vitest `thresholds`), raised as tests improve; the target is 80% globally:
-- Global: statements 79%, branches 66%, functions 86%, lines 81%
-- `src/scan/**`: statements 85%, branches 80%, functions 90%, lines 90%
-- `src/evidence/**`: statements 83%, branches 74%, functions 82%, lines 88%
+- Global: statements 84%, branches 74%, functions 90%, lines 87%
+- `src/scan/**`: statements 90%, branches 85%, functions 94%, lines 94%
+- `src/evidence/**`: statements 85%, branches 80%, functions 89%, lines 91%
 
 The gate was proven to fail: raising one per-glob threshold to 99% gives exit 1. The new modules use hermetic tests
 (fake process runner and store), so their coverage is the same locally and in CI.
 
-The earlier deviation on the global functions floor (84% to 82%) is closed: the scanner modules raised it to 86%.
-The plan target for the new modules is 90/85/90/90 (statements, branches, functions, lines); `src/evidence` store (78%) and the
-process runner (75%) are still below that.
+Measured after feature 004: global 88/81/93/91, `src/scan` 93/88/98/96, `src/evidence` 87/83/92/93; the floors sit a few points below so
+the CI container (older tests that call real tools measure lower there) stays green. The plan target for the new modules is
+90/85/90/90; `src/evidence` statements (87%) are still below it.
 The older tests that call real tools make the global figure lower in the CI container than on a developer machine; make them
 hermetic before raising the global floor.
 
@@ -244,7 +280,7 @@ This project follows Intent Integrity Kit governance:
 
 ---
 
-## ISO 25010 NFR Implementation
+## ISO 25010 NFR coverage (partly implemented, not demonstrated; see docs/review-report.md section 5)
 
 This framework implements ISO/IEC 25010:2011 software quality characteristics as Temporal activities:
 

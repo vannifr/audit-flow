@@ -99,13 +99,13 @@ function listFiles(dir) {
   return out;
 }
 
-function verifyBundles(evidenceRoot) {
+function verifyBundles(evidenceRoot, pubKeyPath) {
   const checks = [];
   if (!fs.existsSync(evidenceRoot)) return checks;
   for (const entry of fs.readdirSync(evidenceRoot, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const dir = path.join(evidenceRoot, entry.name);
-    const run = spawnSync('npx', ['ts-node', 'src/cli/verify-evidence.ts', dir], { cwd: ROOT, encoding: 'utf-8' });
+    const run = spawnSync('npx', ['ts-node', 'src/cli/verify-evidence.ts', '--pubkey', pubKeyPath, dir], { cwd: ROOT, encoding: 'utf-8' });
     checks.push({ name: entry.name, exit: run.status === null ? 2 : run.status });
   }
   return checks;
@@ -154,9 +154,13 @@ async function main() {
     gitEnv[`GIT_CONFIG_VALUE_${i}`] = `https://github.com/${OWNER}/${app}`;
   });
 
+  const keyPath = path.join(workDir, 'keys', 'ed25519.pem');
+  execFileSync('npx', ['ts-node', 'src/cli/evidence-keygen.ts', keyPath], { cwd: ROOT, stdio: 'pipe' });
+  const pubKeyPath = `${keyPath}.pub`;
+
   log('worker starten (taskqueue audit)');
   const workerLog = path.join(workDir, 'worker.log');
-  start('npx', ['ts-node', 'src/worker.ts'], { cwd: ROOT, env: { ...process.env, ...gitEnv, TEMPORAL_ADDRESS: `localhost:${TEMPORAL_PORT}`, TESSERA_EVIDENCE_ROOT: path.join(workDir, 'evidence') } }, workerLog);
+  start('npx', ['ts-node', 'src/worker.ts'], { cwd: ROOT, env: { ...process.env, ...gitEnv, TEMPORAL_ADDRESS: `localhost:${TEMPORAL_PORT}`, TESSERA_EVIDENCE_ROOT: path.join(workDir, 'evidence'), TESSERA_SIGNING_KEY: keyPath, TESSERA_REQUIRE_SIGNATURE: '1' } }, workerLog);
   await waitFor(() => fs.existsSync(workerLog) && /Worker configured/.test(fs.readFileSync(workerLog, 'utf-8')), 90000, 'worker');
 
   const connection = await Connection.connect({ address: `localhost:${TEMPORAL_PORT}` });
@@ -205,7 +209,7 @@ async function main() {
     }
   }
 
-  const bundleChecks = verifyBundles(path.join(workDir, 'evidence'));
+  const bundleChecks = verifyBundles(path.join(workDir, 'evidence'), pubKeyPath);
   const leaks = sweepSecrets([path.join(workDir, 'evidence'), reportDir, workerLog]);
   const verdict = gate({ rows, cleanResult, bundleChecks, leaks });
   const s = summarize(rows);

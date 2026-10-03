@@ -1,148 +1,140 @@
 # Audit Coverage Report
 
-**Generated:** 2026-10-02T06:48:00.000Z
+**Generated:** 2026-10-03T16:33:25.049Z
 
 ## Summary
 
 | Metric | Count | Percentage |
 |--------|-------|------------|
-| Total Checks | 42 | 100% |
-| Implemented | 37 | 88% |
-| Active | 37 | 88% |
-
----
+| Total Checks | 56 | 100% |
+| Implemented | 20 | 35.7% |
+| Active | 20 | 35.7% |
 
 ## Coverage by Domain
 
 | Domain | Total | Implemented | Active | Coverage |
 |--------|-------|-------------|--------|----------|
-| Security & Compliance | 8 | 8 | 8 | 100% |
-| Performance & Scalability | 3 | 3 | 3 | 100% |
-| Reliability & Availability | 3 | 3 | 3 | 100% |
-| Observability | 3 | 3 | 3 | 100% |
-| Testing | 3 | 2 | 2 | 67% |
-| CI/CD & Release Management | 3 | 3 | 3 | 100% |
-| Documentation | 3 | 3 | 3 | 100% |
-| Accessibility | 2 | 2 | 2 | 100% |
-| SEO | 2 | 1 | 1 | 50% |
-| Privacy & GDPR | 2 | 2 | 2 | 100% |
-| Cost Optimization | 2 | 0 | 0 | 0% |
-| Code Quality | 3 | 3 | 3 | 100% |
-| Blinde Vlekken | 5 | 4 | 4 | 80% |
-
----
+| Security & Compliance | 11 | 5 | 5 | 45.5% |
+| Performance & Scalability | 6 | 1 | 1 | 16.7% |
+| Reliability & Availability | 8 | 3 | 3 | 37.5% |
+| Observability | 3 | 3 | 3 | 100.0% |
+| Testing | 3 | 0 | 0 | 0.0% |
+| CI/CD & Release Management | 3 | 3 | 3 | 100.0% |
+| Documentation | 3 | 0 | 0 | 0.0% |
+| Accessibility | 2 | 2 | 2 | 100.0% |
+| SEO | 2 | 0 | 0 | 0.0% |
+| Privacy & GDPR | 2 | 0 | 0 | 0.0% |
+| Cost Optimization | 2 | 0 | 0 | 0.0% |
+| Code Quality | 6 | 3 | 3 | 50.0% |
+| Blinde Vlekken | 5 | 0 | 0 | 0.0% |
 
 ## Implemented Checks
 
-### Security & Compliance (8/8)
+### Security & Compliance
 
-- **Dependency Vulnerabilities** (npm-audit) — ✓ Active
-- **Secret Detection** (gitleaks) — ✓ Active
-- **SAST** (semgrep) — ✓ Active
-- **SQL Injection** (semgrep custom) — ✓ Active
-- **License Compliance** (license-checker) — ✓ Active
-- **Input Validation** (semgrep) — ✓ Active
-- **Critical Path Review** (Pattern-based) — ✓ Active
-- **CSRF Protection** (semgrep) — ✓ Active
+- **Dependency Vulnerabilities** (npm-audit) — Scan dependencies for known vulnerabilities (npm audit) [Active]
+- **Secret Detection** (gitleaks) — Detect hardcoded secrets, API keys, tokens (gitleaks) [Active]
+- **Static Application Security Testing** (semgrep) — SQL injection, XSS, command injection detection (semgrep) [Active]
+- **License Compliance** (license-checker) — Check license compatibility (license-checker) [Active]
+- **Input Validation** (semgrep) — Verify input sanitization, parameterized queries, SQL injection [Active]
 
-### Performance & Scalability (3/3)
+### Performance & Scalability
 
-- **Lighthouse Performance** — ✓ Active (LCP, FID, CLS)
-- **Core Web Vitals** — ✓ Active
-- **Performance Score** — ✓ Active
+- **Lighthouse Performance** (lighthouse) — Core Web Vitals, LCP, FID, CLS [Active]
 
-### Reliability & Availability (3/3)
+### Reliability & Availability
 
-- **Error Handling Review** — ✓ Active
-- **Retry Logic Detection** — ✓ Active
-- **Health Check Endpoint** — ✓ Active
+- **Error Handling Review** (reliability-check) — Check error boundaries, try-catch coverage [Active]
+- **Retry Logic** (reliability-check) — Check for retry patterns, backoff [Active]
+- **Health Check Endpoint** (reliability-check) — Verify /health endpoint exists [Active]
 
-### Observability (3/3)
+### Observability
 
-- **Structured Logging** — ✓ Active
-- **Metrics Collection** — ✓ Active
-- **Distributed Tracing** — ✓ Active
+- **Structured Logging** (observability-check) — Verify JSON logging, request IDs, log levels [Active]
+- **Metrics Collection** (observability-check) — Verify metrics instrumentation [Active]
+- **Distributed Tracing** (observability-check) — Verify OpenTelemetry or similar [Active]
 
-### Testing (2/3)
+### CI/CD & Release Management
 
-- **Coverage Gates** — ✓ Active
-- **Edge Case Tests** — ✓ Active
-- **E2E Tests** — Not in audit workflow
+- **Pipeline Configuration** (cicd-check) — Review CI/CD pipeline setup [Active]
+- **Security Gates in CI** (cicd-check) — Verify SAST, SCA, secret scanning in CI [Active]
+- **Rollback Procedure** (cicd-check) — Verify rollback mechanism exists [Active]
 
-### CI/CD (3/3)
+### Accessibility
 
-- **Pipeline Configuration** — ✓ Active
-- **Security Gates in CI** — ✓ Active
-- **Rollback Procedure** — ✓ Active
+- **WCAG 2.2 Level AA** (axe-cli) — Automated accessibility scan [Active]
+- **Lighthouse Accessibility** (lighthouse) — Accessibility category scan [Active]
 
-### Documentation (3/3)
+### Code Quality
 
-- **README Check** — ✓ Active
-- **API Documentation** — ✓ Active
-- **Runbooks** — ✓ Active
+- **Linting** (eslint) — ESLint, Prettier checks [Active]
+- **Type Safety** (tsc) — TypeScript strict mode [Active]
+- **Code Complexity** (code-quality-check) — File size, maintainability [Active]
 
-### Accessibility (2/2)
+## Not Implemented Checks
 
-- **WCAG 2.2 Level AA** (axe-cli) — ✓ Active
-- **Lighthouse Accessibility** — ✓ Active
+### Security & Compliance
 
-### SEO (1/2)
+- Authentication & Session Security — *Requires manual review or AI code review*
+- CSRF Protection
+- Data Encryption at Rest/Transit
+- Exploitability Assessment (planned: cvss-calculator) — *New NFR from ISO 25010*
+- Auditability & Control (planned: audit-logger) — *New NFR from ISO 25010*
+- Transparency (AI/ML) — *Optional - AI/ML systems only*
 
-- **Lighthouse SEO** — ✓ Active
-- **Structured Data** — Not implemented
+### Performance & Scalability
 
-### Privacy & GDPR (2/2)
+- Load Testing (planned: k6)
+- Bundle Size Analysis (planned: webpack-bundle-analyzer)
+- Throughput Testing (planned: k6) — *New NFR from ISO 25010*
+- Boot Time Measurement (planned: lighthouse) — *Optional - mobile/embedded only*
+- Volume Testing (planned: k6) — *Optional - big data systems only*
 
-- **Consent Management** — ✓ Active
-- **Privacy Policy** — ✓ Active
+### Reliability & Availability
 
-### Code Quality (3/3)
+- Durability Testing (planned: chaos-toolkit) — *New NFR from ISO 25010*
+- Stability Testing (planned: chaos-toolkit) — *New NFR from ISO 25010*
+- Robustness Testing (planned: zap-fuzz) — *New NFR from ISO 25010*
+- Resilience Testing (planned: litmus-chaos) — *New NFR from ISO 25010*
+- Safety Requirements — *Optional - IoT/embedded/medical/automotive only*
 
-- **Linting** (ESLint) — ✓ Active
-- **Type Safety** (tsc) — ✓ Active
-- **Code Complexity** — ✓ Active
+### Testing
 
-### Blinde Vlekken (4/5)
+- Unit Test Coverage (planned: vitest) — *CI check, not in audit workflow*
+- Integration Tests
+- E2E Tests (planned: playwright)
 
-- **Bus Factor** — ✓ Active
-- **On-Call Documentation** — ✓ Active
-- **Exit Strategy** — ✓ Active
-- **Mobile Support** — ✓ Active
-- **i18n** — ✓ Active
+### Documentation
 
----
+- README Documentation
+- API Documentation
+- Operational Runbooks
 
-## Not Implemented
+### SEO
 
-| Check | Reason | Priority |
-|-------|--------|----------|
-| Structured Data (SEO) | Requires schema.org parsing | P3 |
-| Cost Optimization | Requires cloud API integration | P3 |
+- Lighthouse SEO (planned: lighthouse)
+- Structured Data
 
----
+### Privacy & GDPR
 
-## Activities Overview
+- Consent Management — *Manual review required*
+- Data Classification
 
-19 activities implemented:
+### Cost Optimization
 
-| Activity | Domain | Tool |
-|----------|--------|------|
-| runNpmAudit | Security | npm audit |
-| runGitleaks | Security | gitleaks |
-| runSemgrep | Security | semgrep |
-| runSqlInjectionCheck | Security | semgrep custom |
-| runLicenseCheck | Compliance | license-checker |
-| reviewCriticalPaths | Security | Pattern-based |
-| runLighthouse | Performance | lighthouse |
-| runAxeAccessibility | Accessibility | axe-cli |
-| checkReliability | Reliability | Pattern-based |
-| checkObservability | Observability | Pattern-based |
-| checkCicd | CI/CD | Config parser |
-| checkCodeQuality | Code Quality | ESLint, tsc |
-| checkDocumentation | Documentation | File check |
-| checkPrivacy | Privacy | Pattern-based |
-| checkFunctionalRequirements | Functional | Test check |
-| checkBlindSpots | Blind Spots | Repo check |
-| generateReport | Reporting | Markdown |
-| waitForHumanApproval | Approval | Temporal signals |
-| validateRepoUrl | Discovery | Regex |
+- Cloud Cost Analysis
+- Resource Utilization
+
+### Code Quality
+
+- MTTR Measurement (planned: jira-metrics) — *New NFR from ISO 25010*
+- Code Readability (planned: eslint-complexity) — *New NFR from ISO 25010*
+- Extensibility (planned: module-analyzer) — *New NFR from ISO 25010*
+
+### Blinde Vlekken
+
+- Bus Factor — *Manual review required*
+- Vendor & Dependency Risk
+- Sustainability & Green IT
+- Legal Aspects — *Legal review required*
+- Exit Strategy
