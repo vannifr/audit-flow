@@ -73,9 +73,9 @@ each marked `superseded by FR-xxx` in the commit body. No adapters with the old 
   - Tier B. Consumes: `contracts/run-tool.ts`. Produces: red tests for FR-005, FR-006, FR-013.
 - [x] T013 Implement `src/scan/process-runner.ts`, `src/scan/run-tool.ts`, `src/scan/env.ts` (execFile, array args, `GIT_TERMINAL_PROMPT=0`, env allow-list incl. `EIO_BACKEND`, output cap 64 MiB, record per step) to pass [TS-008, TS-009, TS-010]
   - Tier C (trust boundary: no shell, nothing from the audited source reaches a command). Files: `src/scan/process-runner.ts`, `src/scan/run-tool.ts`, `src/scan/env.ts`. Consumes: T007, T009, T011. Produces: `runTool`.
-- [ ] T014 [P] Write failing unit tests for the run lifecycle: `initAuditRun`, `fetchSource` (clone via `runTool`, `rev-parse`), `cleanupRun` on every exit path, unreachable source [TS-011, TS-014, TS-018] in `tests/unit/scan/lifecycle.test.ts`
+- [x] T014 [P] Write failing unit tests for the run lifecycle: `initAuditRun`, `fetchSource` (clone via `runTool`, `rev-parse`), `cleanupRun` on every exit path, unreachable source [TS-011, TS-014, TS-018] in `tests/unit/scan/lifecycle.test.ts`
   - Tier B. Produces: red tests for FR-008, FR-015 and the edge cases.
-- [ ] T015 Implement `src/scan/lifecycle.ts` (private work dir `<tmp>/tessera-<temporalRunId>`, source revision, cleanup guard that refuses paths outside the work dir) to pass [TS-011, TS-014, TS-018]; keep `validateRepoUrl` unchanged
+- [x] T015 Implement `src/scan/lifecycle.ts` (private work dir `<tmp>/tessera-<temporalRunId>`, source revision, cleanup guard that refuses paths outside the work dir) to pass [TS-011, TS-014, TS-018]; keep `validateRepoUrl` unchanged
   - Tier C (clones untrusted input). Files: `src/scan/lifecycle.ts`, `src/activities/index.ts` (wire `initAuditRun`, `fetchSource`, `cleanupRun`). Supersedes tests of `cloneRepository` (note in commit).
 - [x] T016 Add per-glob coverage thresholds 90/85/90/90 for `src/scan/**` and `src/evidence/**` in `vitest.config.ts` and prove the gate fails (scratch copy with one test disabled, record exit code in the commit body)
   - Tier B. Files: `vitest.config.ts`. Consumes: T007 to T015.

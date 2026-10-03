@@ -16,6 +16,12 @@ import {
 } from 'fs';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
+import * as os from 'os';
+import * as lifecycle from '../scan/lifecycle';
+import type { AuditRun, FetchedSource } from '../scan/lifecycle';
+import { defaultProcessRunner } from '../scan/process-runner';
+import { createEvidenceStore } from '../evidence/store';
+import { validateRepoUrl } from '../scan/repo-url';
 import type {
   Finding,
   TechStack,
@@ -95,30 +101,7 @@ export function getMissingOptionalTools(status: ToolStatus[]): ToolStatus[] {
 
 // ==================== REPOSITORY ACTIVITIES ====================
 
-/**
- * Validates a GitHub repository URL to prevent command injection
- * @param url - The repository URL to validate
- * @returns true if valid, throws ApplicationFailure if invalid
- */
-export function validateRepoUrl(url: string): void {
-  // Only allow GitHub URLs with specific patterns
-  const githubPattern = /^https:\/\/github\.com\/[a-zA-Z0-9_-]+\/[a-zA-Z0-9_.-]+(\.git)?$/;
-
-  if (!githubPattern.test(url)) {
-    throw ApplicationFailure.create({
-      message: 'Invalid repository URL. Only GitHub URLs in format https://github.com/owner/repo are allowed',
-      type: 'InvalidRepoError',
-    });
-  }
-
-  // Additional security checks
-  if (url.includes('..') || url.includes(';') || url.includes('|') || url.includes('&')) {
-    throw ApplicationFailure.create({
-      message: 'Invalid repository URL: contains forbidden characters',
-      type: 'InvalidRepoError',
-    });
-  }
-}
+export { validateRepoUrl };
 
 export async function cloneRepository(
   repoUrl: string,
@@ -2918,4 +2901,94 @@ export async function measureReadability(
     metrics,
     result: findings.filter(f => f.severity === 'P0' || f.severity === 'P1').length === 0 ? 'PASSED' : 'NEEDS_ATTENTION'
   };
+}
+// ==================== RUN LIFECYCLE ACTIVITIES ====================
+
+function evidenceRoot(): string {
+  const configured = process.env.TESSERA_EVIDENCE_ROOT;
+  return configured !== undefined && configured.length > 0
+    ? configured
+    : path.join(os.homedir(), '.local', 'share', 'tessera', 'evidence');
+}
+
+function frameworkVersion(): string {
+  try {
+    const pkg = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', 'package.json'), 'utf8')) as { version?: unknown };
+    return typeof pkg.version === 'string' ? pkg.version : 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+function evidenceRunId(workflowId: string, runId: string): string {
+  return `${workflowId.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 64)}-${runId}`;
+}
+
+function currentExecution(): { workflowId: string; runId: string; attempt: number } {
+  const info = Context.current().info;
+  if (info.workflowExecution === undefined) {
+    throw ApplicationFailure.create({ message: 'run lifecycle activities require a workflow execution', type: 'InvalidRunError', nonRetryable: true });
+  }
+  return { workflowId: info.workflowExecution.workflowId, runId: info.workflowExecution.runId, attempt: info.attempt };
+}
+
+function toApplicationFailure(error: unknown): unknown {
+  if (error instanceof lifecycle.LifecycleInputError) {
+    return ApplicationFailure.create({
+      message: error.message,
+      type: error.code === 'invalid-repo-url' ? 'InvalidRepoError' : 'InvalidRunError',
+      nonRetryable: true,
+    });
+  }
+  if (error instanceof lifecycle.SourceFetchFailure) {
+    return ApplicationFailure.create({
+      message: error.message,
+      type: error.kind === 'network' ? 'SourceNetworkError' : 'SourceUnavailableError',
+      nonRetryable: !error.retryable,
+    });
+  }
+  return error;
+}
+
+export async function initAuditRun(): Promise<AuditRun> {
+  const workflowExecution = currentExecution();
+  try {
+    const run = await lifecycle.initAuditRun({
+      workflowId: workflowExecution.workflowId,
+      temporalRunId: workflowExecution.runId,
+      tmpRoot: os.tmpdir(),
+    });
+    logger.info({ runId: run.runId }, 'Audit run initialized');
+    return run;
+  } catch (error) {
+    logger.error({ runId: workflowExecution.runId, error: error instanceof Error ? error.message : String(error) }, 'Audit run initialization failed');
+    throw toApplicationFailure(error);
+  }
+}
+
+export async function fetchSource(run: AuditRun, repoUrl: string): Promise<FetchedSource> {
+  const workflowExecution = currentExecution();
+  const { attempt } = workflowExecution;
+  const bundleRunId = evidenceRunId(workflowExecution.workflowId, workflowExecution.runId);
+  try {
+    const source = await lifecycle.fetchSource(run, repoUrl, {
+      runner: defaultProcessRunner,
+      tmpRoot: os.tmpdir(),
+      store: createEvidenceStore(evidenceRoot(), bundleRunId),
+      clock: () => new Date(),
+      frameworkVersion: frameworkVersion(),
+      attempt,
+      evidenceRunId: bundleRunId,
+    });
+    logger.info({ runId: run.runId, revision: source.revision }, 'Source fetched');
+    return source;
+  } catch (error) {
+    logger.warn({ runId: run.runId, error: error instanceof Error ? error.message : String(error) }, 'Source fetch failed');
+    throw toApplicationFailure(error);
+  }
+}
+
+export async function cleanupRun(run: AuditRun): Promise<void> {
+  await lifecycle.cleanupRun(run, os.tmpdir());
+  logger.info({ runId: run.runId }, 'Audit run work dir removed');
 }
