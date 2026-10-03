@@ -52,6 +52,7 @@ Elk item wordt een IIKit-feature wanneer het aan de beurt is. `Bron` verwijst na
 | 015 | Compliance-mapping echt (ISO 27001, SOC 2, ASVS) | 4 | #19 | 012 | niet gestart |
 | 016 | GenAI-advies onder controle (triage, herstelplan, kruisvalidatie) | 4 | #19, constitution IX | 013, 015 | niet gestart |
 | 017 | Onafhankelijke verificatie en externe penetratietest | 4 | n.v.t. | 013 | niet gestart |
+| 018 | Flowmetrics-script (demo-recall, uren CI rood, doorlooptijd, deviaties) naar `docs/metrics/` | 1 | `docs/agile/working-agreement.md` | 004 | niet gestart |
 
 Gevolg voor de volgorde: niveau 2 bestaat uit items 005–012 en is pas af als alle exitcriteria groen zijn.
 Volgorde binnen een niveau volgt risico (RCE en toegang eerst: 006 en 008), niet de nummering.
