@@ -10,10 +10,10 @@ export default defineConfig({
       reporter: ['text', 'json', 'html', 'lcov'],
       exclude: [...configDefaults.coverage.exclude!, 'demo/**'],
       thresholds: {
-        statements: 74,
-        branches: 58,
-        functions: 82,
-        lines: 77,
+        statements: 79,
+        branches: 66,
+        functions: 86,
+        lines: 81,
         'src/scan/**': {
           statements: 85,
           branches: 80,

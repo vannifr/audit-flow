@@ -207,3 +207,7 @@ Overgeslagen: geen nieuwe externe technologie. Alle bouwstenen zijn Node-ingebou
 **Bekende beperking, bewust benoemd**: de sleutel staat op dezelfde host. Wie als de workergebruiker of root kan schrijven, kan ook de sleutel gebruiken en dus een geldige handtekening zetten. Dit is assurance-niveau 1. Sleutelbeheer buiten het beheerdomein (KMS of HSM, aparte ondertekenaar), onafhankelijke tijdstempel (RFC 3161), externe verankering en scanner-attestatie zijn niveau 2 en 3 in de roadmap. Aanbevolen al in v1: de sleutel onder een andere OS-gebruiker dan de worker laten staan en alleen de ondertekenstap laten aanroepen.
 
 **Alternatieven**: handtekening achteraf door een aparte tool (extra stap, kans op vergeten); sigstore of KMS nu (infrastructuur en kosten, niet nodig voor niveau 1); GPG (externe binary en keyring-gedrag).
+
+## R14 addendum (2026-10-03): packages without a license field
+
+Decided during implementation: a package without a `license` field in the lockfile does not make the license check `partial`. The scan stays `completed`, and one summary P3 finding lists the count and the first names, and `causeDetail` repeats the count. Unknown is shown as a finding, not as clean. A lockfileVersion 1 file has no license fields and gives `partial/unsupported-lockfile`; an unknown lockfileVersion gives `failed/unsupported-lockfile`. Reason: marking every audit incomplete over a few unlabeled packages would make the outcome rule meaningless.

@@ -187,17 +187,16 @@ secret scan; pre-push runs `verify:full`.
 ### Coverage Thresholds
 
 Enforced floor (vitest `thresholds`), raised as tests improve; the target is 80% globally:
-- Global: statements 74%, branches 58%, functions 82%, lines 77%
+- Global: statements 79%, branches 66%, functions 86%, lines 81%
 - `src/scan/**`: statements 85%, branches 80%, functions 90%, lines 90%
 - `src/evidence/**`: statements 83%, branches 74%, functions 82%, lines 88%
 
 The gate was proven to fail: raising one per-glob threshold to 99% gives exit 1. The new modules use hermetic tests
 (fake process runner and store), so their coverage is the same locally and in CI.
 
-**Deviation (constitution XII, ratchet)**: the global functions floor went from 84% to 82% when the new activity wrappers
-in `src/activities/index.ts` landed without tests (measured 83.6%). Owner: vannifr. Deadline: when task T027 wires the
-wrappers into the workflow and covers them; the floor returns to at least 84% then. The plan target for the new modules is
-90/85/90/90 (statements, branches, functions, lines); they are below that today (store 78%, process runner 75% statements).
+The earlier deviation on the global functions floor (84% to 82%) is closed: the scanner modules raised it to 86%.
+The plan target for the new modules is 90/85/90/90 (statements, branches, functions, lines); `src/evidence` store (78%) and the
+process runner (75%) are still below that.
 The older tests that call real tools make the global figure lower in the CI container than on a developer machine; make them
 hermetic before raising the global floor.
 
