@@ -52,6 +52,19 @@ function start(cmd, args, opts, logFile) {
   return child;
 }
 
+function makeWritable(dir) {
+  let entries = [];
+  try {
+    fs.chmodSync(dir, 0o700);
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch (_) {
+    return;
+  }
+  for (const entry of entries) {
+    if (entry.isDirectory()) makeWritable(path.join(dir, entry.name));
+  }
+}
+
 function cleanup() {
   for (const child of children) {
     try {
@@ -59,6 +72,7 @@ function cleanup() {
     } catch (_) {}
   }
   if (workDir && !process.env.DEMO_KEEP_WORKDIR) {
+    makeWritable(workDir);
     fs.rmSync(workDir, { recursive: true, force: true });
   }
 }
