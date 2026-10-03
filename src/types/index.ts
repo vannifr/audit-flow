@@ -24,6 +24,7 @@ export interface AuditResult {
   notPerformed: NotPerformed[];
   scanners: ScannerStatusEntry[];
   source: { repoUrl: string; revision: string | null };
+  reviewAdvice: ReviewAdvice[];
 }
 
 export type AuditStatus =
@@ -133,6 +134,14 @@ export interface ReviewResult {
   reviewNotes: string;
 }
 
+export interface ReviewAdvice {
+  findingId: string;
+  kind: 'severity-correction' | 'false-positive';
+  currentSeverity?: 'P0' | 'P1' | 'P2' | 'P3';
+  suggestedSeverity?: 'P0' | 'P1' | 'P2' | 'P3';
+  reason?: string;
+}
+
 export interface SeverityCorrection {
   findingId: string;
   newSeverity: 'P0' | 'P1' | 'P2' | 'P3';
@@ -169,4 +178,5 @@ export interface AuditState {
   outcome?: AuditOutcome;
   notPerformed?: NotPerformed[];
   revision?: string;
+  reviewAdvice?: ReviewAdvice[];
 }

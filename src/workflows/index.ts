@@ -23,6 +23,7 @@ import type {
   ScopeDocument,
   ComplianceMap,
   ReviewResult,
+  ReviewAdvice,
 } from '../types';
 import type { AuditRun, FetchedSource } from '../scan/lifecycle';
 import type { ScanFinding, ScanStepResult } from '../scan/scan-types';
@@ -148,7 +149,11 @@ export async function applicationAudit(input: AuditInput): Promise<AuditResult> 
 
     // Guardrail: Input validation
     if (!state.techStack || !state.techStack.frameworks.length) {
-      throw new Error('Could not detect tech stack - aborting audit');
+      throw ApplicationFailure.create({
+        type: 'TechStackNotDetectedError',
+        message: 'Could not detect tech stack - aborting audit',
+        nonRetryable: true,
+      });
     }
 
     // ==================== FASE 1: AUTOMATED SCANS ====================
@@ -201,8 +206,8 @@ export async function applicationAudit(input: AuditInput): Promise<AuditResult> 
       model: 'qwen3-max',
     });
 
-    // Apply review corrections
-    state.findings = applyReviewCorrections(state.findings, reviewResult);
+    const reviewAdvice = reviewAdviceFor(state.findings, reviewResult);
+    state.reviewAdvice = reviewAdvice;
 
     // ==================== FASE 5: HUMAN APPROVAL ====================
 
@@ -220,7 +225,11 @@ export async function applicationAudit(input: AuditInput): Promise<AuditResult> 
       );
 
       if (!approved) {
-        throw new Error('Audit rejected: P0 findings not approved within timeout');
+        throw ApplicationFailure.create({
+          type: 'AuditRejectedError',
+          message: 'Audit rejected: P0 findings not approved within timeout',
+          nonRetryable: true,
+        });
       }
     }
 
@@ -259,6 +268,7 @@ export async function applicationAudit(input: AuditInput): Promise<AuditResult> 
       notPerformed: decision.notPerformed,
       scanners,
       source: { repoUrl: input.repoUrl, revision: source.revision },
+      reviewAdvice,
     };
   } catch (error) {
     state.currentPhase = 'failed';
@@ -375,18 +385,21 @@ function identifyCriticalPaths(techStack: TechStack): string[] {
   return paths;
 }
 
-function applyReviewCorrections(
-  findings: Finding[],
-  review: ReviewResult
-): Finding[] {
-  // Apply severity corrections
-  for (const correction of review.severityCorrections) {
+function reviewAdviceFor(findings: Finding[], review: ReviewResult): ReviewAdvice[] {
+  const advice: ReviewAdvice[] = [];
+  for (const correction of review.severityCorrections ?? []) {
     const finding = findings.find(f => f.id === correction.findingId);
-    if (finding) {
-      finding.severity = correction.newSeverity;
-    }
+    if (finding === undefined) continue;
+    advice.push({
+      findingId: finding.id,
+      kind: 'severity-correction',
+      currentSeverity: finding.severity,
+      suggestedSeverity: correction.newSeverity,
+      reason: correction.reason,
+    });
   }
-
-  // Remove false positives
-  return findings.filter(f => !review.falsePositives.includes(f.id));
+  for (const id of review.falsePositives ?? []) {
+    if (findings.some(f => f.id === id)) advice.push({ findingId: id, kind: 'false-positive' });
+  }
+  return advice;
 }

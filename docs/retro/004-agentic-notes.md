@@ -36,3 +36,11 @@ Start of the slice: 2026-10-03 13:48 (timebox: one working day).
 - Layered defense held: gitleaks findings are redacted as exact known values (including JSON-escaped, base64, percent-encoded); the pattern layer is only the backstop for unknown secrets.
 - Parallel Opus and Sonnet agents in one working tree worked without conflicts because each task owned distinct files; the orchestrator never ran the shared `npm run verify` until all were done.
 - Time used before the first commit of Phase 2: about 1h20 of the one-day timebox, mostly agent wall time waiting on mutation loops.
+
+## Cross-family review, first real use (2026-10-03 evening)
+- A Qwen (`qwen3.7-plus`) read-only review of the Tier C files took about 5 minutes and about 29 tool calls: 15 items, 2 valid and fixed, 5 minor, 5 not applicable, 1 false (Temporal's workflow sandbox makes `Date` deterministic).
+  Value: it confirmed a pre-existing risk the Opus builder had already mentioned and found a principle IX gap nobody had looked at. Cost: triage time, because each claim had to be verified against the code.
+- Alibaba quota recovered after a few hours; a hard `timeout 900` on the run prevented a repeat of the T008 runaway.
+- Output of the day so far: US1 complete (17 of 17 scenarios), demo strict recall 6 of 18 to 8 of 18, severity-correct 3 to 5, false positives on clean-app 1 to 0.
+- An automated security plugin flagged a "fail-open" line that did not exist in the code (the line already mapped ENOENT to `unavailable`): automatic findings also need verification before acting.
+- Process deviation: one Sonnet agent wrote test and code together and did not show the red step; mutation testing still passed, but the TDD evidence is missing for that task.

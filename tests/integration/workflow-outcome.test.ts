@@ -444,7 +444,68 @@ describe('applicationAudit result shape', () => {
   it('extends AuditResult additively and keeps raw output out of it', async () => {
     const result: AuditResult = await applicationAudit(INPUT);
     expect(Object.keys(result).sort()).toEqual(
-      ['complianceMap', 'duration', 'endTime', 'evidencePath', 'findings', 'notPerformed', 'outcome', 'reportPath', 'scanners', 'source', 'startTime', 'status'].sort(),
+      ['complianceMap', 'duration', 'endTime', 'evidencePath', 'findings', 'notPerformed', 'outcome', 'reportPath', 'reviewAdvice', 'scanners', 'source', 'startTime', 'status'].sort(),
     );
+  });
+});
+
+describe('applicationAudit failures end the workflow instead of retrying the task', () => {
+  it('ends with a non-retryable TechStackNotDetectedError when no framework is detected', async () => {
+    harness.activities.detectTechStack = vi.fn(async () => ({ language: 'unknown', frameworks: [], hasPayments: false, hasPII: false, packageManager: 'other' }));
+
+    const error = await rejection(applicationAudit(INPUT));
+
+    expect(error).toBeInstanceOf(ApplicationFailure);
+    expect((error as ApplicationFailure).type).toBe('TechStackNotDetectedError');
+    expect((error as ApplicationFailure).nonRetryable).toBe(true);
+    expect(act('cleanupRun')).toHaveBeenCalledWith(RUN);
+    expect(act('generateReport')).not.toHaveBeenCalled();
+  });
+
+  it('ends with a non-retryable AuditRejectedError when P0 findings are not approved', async () => {
+    const p0 = { ...finding('LEAK-P0', 'gitleaks'), severity: 'P0' as const };
+    harness.activities.runGitleaks = vi.fn(async () => step('gitleaks', 'completed', { cause: 'issues-found', findings: [p0] }));
+
+    const error = await rejection(applicationAudit({ ...INPUT, skipApproval: false }));
+
+    expect(error).toBeInstanceOf(ApplicationFailure);
+    expect((error as ApplicationFailure).type).toBe('AuditRejectedError');
+    expect((error as ApplicationFailure).nonRetryable).toBe(true);
+    expect(act('generateReport')).not.toHaveBeenCalled();
+    expect(act('cleanupRun')).toHaveBeenCalledWith(RUN);
+  });
+});
+
+describe('applicationAudit model review is advice only (principle IX)', () => {
+  it('keeps findings unchanged on a P0->P3 downgrade and a false-positive removal, and records the advice', async () => {
+    const p0 = { ...finding('LEAK-1', 'gitleaks'), severity: 'P0' as const };
+    const other = finding('SG-1', 'semgrep');
+    harness.activities.runGitleaks = vi.fn(async () => step('gitleaks', 'completed', { cause: 'issues-found', findings: [p0] }));
+    harness.activities.runSemgrep = vi.fn(async () => step('semgrep', 'completed', { cause: 'issues-found', findings: [other] }));
+    harness.activities.crossValidate = vi.fn(async () => ({
+      falsePositives: ['SG-1'],
+      severityCorrections: [
+        { findingId: 'LEAK-1', newSeverity: 'P3', reason: 'test fixture' },
+        { findingId: 'SG-1', newSeverity: 'P0', reason: 'escalate' },
+      ],
+      missingFindings: [],
+      reviewNotes: 'model notes',
+    }));
+
+    const result = await applicationAudit(INPUT);
+
+    expect(result.findings.map((f) => [f.id, f.severity])).toEqual([['LEAK-1', 'P0'], ['SG-1', 'P2']]);
+    expect(result.reviewAdvice).toEqual([
+      { findingId: 'LEAK-1', kind: 'severity-correction', currentSeverity: 'P0', suggestedSeverity: 'P3', reason: 'test fixture' },
+      { findingId: 'SG-1', kind: 'severity-correction', currentSeverity: 'P2', suggestedSeverity: 'P0', reason: 'escalate' },
+      { findingId: 'SG-1', kind: 'false-positive' },
+    ]);
+    expect((reportInput().findings as Finding[]).map((f) => f.severity)).toEqual(['P0', 'P2']);
+    expect(result.outcome).toBe('complete');
+  });
+
+  it('records no advice when the review suggests nothing', async () => {
+    const result = await applicationAudit(INPUT);
+    expect(result.reviewAdvice).toEqual([]);
   });
 });
