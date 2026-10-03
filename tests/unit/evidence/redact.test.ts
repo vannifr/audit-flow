@@ -423,3 +423,21 @@ describe("redactSecrets known gaps", () => {
     expect(result.text).toBe("password=[REDACTED:password] next");
   });
 });
+
+describe("redactSecrets boundary cases", () => {
+  it.each([
+    ["api_key=abcdefghij0123456789", "api_key=[REDACTED:token]"],
+    ["github_pat_" + "a1".repeat(11), "[REDACTED:github-token]"],
+    ["Authorization=Bearer abcdefgh", "Authorization=Bearer [REDACTED:auth-header]"],
+    ["password-x=hunter2", "password-x=[REDACTED:password]"],
+    ["password='ab\\\"cd' z", "password='[REDACTED:password]' z"],
+    ["password='ab\\\"cd z", "password='[REDACTED:password]\\\"cd z"],
+    ['password=\\"abc\\ndef\\" x', 'password=\\"[REDACTED:password]\\ndef\\" x'],
+  ])("redacts %j as %j", (input, expected) => {
+    expect(redactSecrets(input)).toEqual({ text: expected, redactions: 1 });
+  });
+
+  it("redacts the unpadded base64 form of a known secret", () => {
+    expect(redactSecrets("x YWJjZA y", ["abcd"])).toEqual({ text: "x [REDACTED] y", redactions: 1 });
+  });
+});

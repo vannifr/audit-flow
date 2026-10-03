@@ -695,3 +695,37 @@ describe('traceEvidence integrity', () => {
     await expect(traceEvidence(b.dir, 'scan.npm-audit.a1')).rejects.toThrow(/manifest/);
   });
 });
+
+describe('verifyEvidenceBundle: manifest shape and issue precedence', () => {
+  let root: string;
+
+  beforeEach(async () => {
+    root = await mkdtemp(path.join(tmpdir(), 'tessera-verify-shape-'));
+  });
+
+  afterEach(async () => {
+    await removeTree(root);
+  });
+
+  it.each([
+    ['a duplicated entry path', (m: Record<string, any>) => m.entries.splice(1, 0, { ...m.entries[0] })],
+    ['a non-string retainUntil', (m: Record<string, any>) => (m.retainUntil = 1)],
+    ['a malformed chain head', (m: Record<string, any>) => (m.chain.head = 'zz')],
+  ])('rejects a manifest with %s as invalid', async (_label, edit) => {
+    const b = await buildSealedBundle(root);
+    await rewriteManifest(b.dir, edit);
+    const report = await verifyEvidenceBundle(b.dir);
+    expect(report.issues).toEqual([{ path: 'manifest.json', problem: 'invalid-record' }]);
+  });
+
+  it('keeps the first of two equally ranked problems for the same path', async () => {
+    const b = await buildSealedBundle(root);
+    const artifact = (b.manifest.entries as { path: string; kind: string }[]).find((e) => e.kind === 'artifact')!.path;
+    await unlockAll(b.dir);
+    await unlink(path.join(b.dir, artifact));
+    const { mkdir } = await import('node:fs/promises');
+    await mkdir(path.join(b.dir, artifact));
+    const report = await verifyEvidenceBundle(b.dir);
+    expect(report.issues.find((i) => i.path === artifact)).toEqual({ path: artifact, problem: 'extra' });
+  });
+});

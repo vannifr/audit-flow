@@ -474,3 +474,22 @@ describe('runLicenseScan hostile input', () => {
     expect(summary.violations).toHaveLength(2005);
   });
 });
+
+describe('runLicenseScan boundary cases', () => {
+  it('treats a three-part GPL version as strong copyleft', async () => {
+    const res = await scanWith({ 'node_modules/a': { version: '1.0.0', license: 'GPL-2.0.1' } });
+    expect(res.findings).toHaveLength(1);
+  });
+
+  it('names every unsupported lockfile in the inputs, comma separated', async () => {
+    await writeRepo({ 'package.json': '{}', 'yarn.lock': '', 'pnpm-lock.yaml': '' });
+    const res = await runLicenseScan(ctx());
+    expect(res.status.cause).toBe('unsupported-lockfile');
+    expect(store.records[0].action.inputs).toEqual({ lockfileName: 'yarn.lock,pnpm-lock.yaml' });
+  });
+
+  it('uses the singular wording for exactly one ignored lockfile entry', async () => {
+    const res = await scanWith({ 'node_modules/a': 'x' as unknown as Pkg });
+    expect(res.status.causeDetail).toBe('1 lockfile entry was invalid or used a forbidden package name and were ignored');
+  });
+});

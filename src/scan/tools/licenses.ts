@@ -56,9 +56,13 @@ function clean(text: string, max: number): string {
   return redacted.length > max ? `${redacted.slice(0, max - 3)}...` : redacted;
 }
 
+const GPL_VERSION = /(-?V?\d+(\.\d+)*)?/;
+const GPL_SUFFIX = /(\+|-ONLY|-OR-LATER|-WITH-.*)?/;
+const GPL_ID = new RegExp(`^A?GPL${GPL_VERSION.source}${GPL_SUFFIX.source}$`);
+
 function isStrongCopyleft(id: string): boolean {
   const s = id.trim().toUpperCase().replace(/[\s_]+/g, '-').replace(/^GNU-/, '');
-  if (/^A?GPL(-?V?\d+(\.\d+)*)?(\+|-ONLY|-OR-LATER|-WITH-.*)?$/.test(s)) return true;
+  if (GPL_ID.test(s)) return true;
   return /^(AFFERO-)?GENERAL-PUBLIC-LICEN[CS]E/.test(s);
 }
 
@@ -219,72 +223,58 @@ async function readLockfile(file: string, name: string): Promise<ReadResult> {
   }
 }
 
-async function evaluate(repoDir: string): Promise<Outcome> {
-  if (!(await exists(path.join(repoDir, 'package.json')))) {
-    return { status: 'skipped', cause: 'not-applicable', causeDetail: 'no package.json at the repository root', inputs: {} };
-  }
-  let lockfileName: LockfileName | undefined;
+async function findLockfile(repoDir: string): Promise<LockfileName | undefined> {
   for (const name of LOCKFILES) {
-    if (await exists(path.join(repoDir, name))) {
-      lockfileName = name;
-      break;
-    }
+    if (await exists(path.join(repoDir, name))) return name;
   }
-  if (lockfileName === undefined) {
-    const other: string[] = [];
-    for (const name of UNSUPPORTED_LOCKFILES) {
-      if (await exists(path.join(repoDir, name))) other.push(name);
-    }
-    if (other.length > 0) {
-      return {
-        status: 'skipped',
-        cause: 'unsupported-lockfile',
-        causeDetail: `only ${other.join(', ')} found; licenses are read from package-lock.json or npm-shrinkwrap.json`,
-        inputs: { lockfileName: other.join(',') },
-      };
-    }
-    return { status: 'skipped', cause: 'no-lockfile', causeDetail: 'package.json has no lockfile; licenses not checked', inputs: {} };
+  return undefined;
+}
+
+async function noLockfileOutcome(repoDir: string): Promise<Outcome> {
+  const other: string[] = [];
+  for (const name of UNSUPPORTED_LOCKFILES) {
+    if (await exists(path.join(repoDir, name))) other.push(name);
   }
-  const read = await readLockfile(path.join(repoDir, lockfileName), lockfileName);
-  if (!read.ok) {
-    return { status: 'failed', cause: 'tool-error', causeDetail: read.detail, inputs: { lockfileName }, lockfileName };
+  if (other.length > 0) {
+    return {
+      status: 'skipped',
+      cause: 'unsupported-lockfile',
+      causeDetail: `only ${other.join(', ')} found; licenses are read from package-lock.json or npm-shrinkwrap.json`,
+      inputs: { lockfileName: other.join(',') },
+    };
   }
-  const inputs: Record<string, string> = { lockfileSha256: sha256Hex(read.bytes), lockfileName };
+  return { status: 'skipped', cause: 'no-lockfile', causeDetail: 'package.json has no lockfile; licenses not checked', inputs: {} };
+}
+
+type ParsedLockfile = { ok: true; doc: Record<string, unknown> } | { ok: false; outcome: Outcome };
+
+function parseLockfile(bytes: Buffer, lockfileName: LockfileName, inputs: Record<string, string>): ParsedLockfile {
   let doc: unknown;
   try {
-    doc = JSON.parse(read.bytes.toString('utf8'));
+    doc = JSON.parse(bytes.toString('utf8'));
   } catch {
-    return { status: 'failed', cause: 'parse-error', causeDetail: `${lockfileName} is not valid JSON`, inputs, lockfileName };
+    return { ok: false, outcome: { status: 'failed', cause: 'parse-error', causeDetail: `${lockfileName} is not valid JSON`, inputs, lockfileName } };
   }
   if (!isRecord(doc)) {
-    return { status: 'failed', cause: 'parse-error', causeDetail: `${lockfileName} is not a JSON object`, inputs, lockfileName };
+    return { ok: false, outcome: { status: 'failed', cause: 'parse-error', causeDetail: `${lockfileName} is not a JSON object`, inputs, lockfileName } };
   }
-  const version = Object.hasOwn(doc, 'lockfileVersion') ? doc.lockfileVersion : undefined;
-  if (version === 1) {
-    const deps = Object.hasOwn(doc, 'dependencies') && isRecord(doc.dependencies) ? doc.dependencies : {};
-    inputs.packages = String(Object.keys(deps).length);
-    return {
-      status: 'partial',
-      cause: 'unsupported-lockfile',
-      causeDetail: `${lockfileName} uses lockfileVersion 1, which has no license fields; licenses not checked`,
-      inputs,
-      lockfileName,
-      lockfileVersion: 1,
-    };
-  }
-  if (version !== 2 && version !== 3) {
-    return {
-      status: 'failed',
-      cause: 'unsupported-lockfile',
-      causeDetail: `${lockfileName} has unsupported lockfileVersion ${clean(JSON.stringify(version) ?? 'missing', 40)}`,
-      inputs,
-      lockfileName,
-    };
-  }
-  const packages = Object.hasOwn(doc, 'packages') ? doc.packages : undefined;
-  if (!isRecord(packages)) {
-    return { status: 'failed', cause: 'parse-error', causeDetail: `${lockfileName} has no packages object`, inputs, lockfileName };
-  }
+  return { ok: true, doc };
+}
+
+function lockfileV1Outcome(doc: Record<string, unknown>, lockfileName: LockfileName, inputs: Record<string, string>): Outcome {
+  const deps = Object.hasOwn(doc, 'dependencies') && isRecord(doc.dependencies) ? doc.dependencies : {};
+  inputs.packages = String(Object.keys(deps).length);
+  return {
+    status: 'partial',
+    cause: 'unsupported-lockfile',
+    causeDetail: `${lockfileName} uses lockfileVersion 1, which has no license fields; licenses not checked`,
+    inputs,
+    lockfileName,
+    lockfileVersion: 1,
+  };
+}
+
+function assessedOutcome(packages: Record<string, unknown>, lockfileName: LockfileName, inputs: Record<string, string>, version: 2 | 3): Outcome {
   const assessment = assess(packages);
   inputs.packages = String(assessment.packages);
   const notes: string[] = [];
@@ -304,6 +294,38 @@ async function evaluate(repoDir: string): Promise<Outcome> {
     assessment,
     lockfileVersion: version,
   };
+}
+
+async function evaluate(repoDir: string): Promise<Outcome> {
+  if (!(await exists(path.join(repoDir, 'package.json')))) {
+    return { status: 'skipped', cause: 'not-applicable', causeDetail: 'no package.json at the repository root', inputs: {} };
+  }
+  const lockfileName = await findLockfile(repoDir);
+  if (lockfileName === undefined) return noLockfileOutcome(repoDir);
+  const read = await readLockfile(path.join(repoDir, lockfileName), lockfileName);
+  if (!read.ok) {
+    return { status: 'failed', cause: 'tool-error', causeDetail: read.detail, inputs: { lockfileName }, lockfileName };
+  }
+  const inputs: Record<string, string> = { lockfileSha256: sha256Hex(read.bytes), lockfileName };
+  const parsed = parseLockfile(read.bytes, lockfileName, inputs);
+  if (!parsed.ok) return parsed.outcome;
+  const doc = parsed.doc;
+  const version = Object.hasOwn(doc, 'lockfileVersion') ? doc.lockfileVersion : undefined;
+  if (version === 1) return lockfileV1Outcome(doc, lockfileName, inputs);
+  if (version !== 2 && version !== 3) {
+    return {
+      status: 'failed',
+      cause: 'unsupported-lockfile',
+      causeDetail: `${lockfileName} has unsupported lockfileVersion ${clean(JSON.stringify(version) ?? 'missing', 40)}`,
+      inputs,
+      lockfileName,
+    };
+  }
+  const packages = Object.hasOwn(doc, 'packages') ? doc.packages : undefined;
+  if (!isRecord(packages)) {
+    return { status: 'failed', cause: 'parse-error', causeDetail: `${lockfileName} has no packages object`, inputs, lockfileName };
+  }
+  return assessedOutcome(packages, lockfileName, inputs, version);
 }
 
 function evidenceItem(file: string, content: string, ctx: ScanContext): Evidence {

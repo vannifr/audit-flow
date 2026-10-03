@@ -17,10 +17,31 @@ export interface WalkOptions {
   filter?: (relative: string) => boolean;
 }
 
+function withoutTrailingSlashes(root: string): string {
+  let end = root.length;
+  while (end > 0 && root[end - 1] === '/') end--;
+  return root.slice(0, end);
+}
+
+function byName(a: { name: string }, b: { name: string }): number {
+  if (a.name < b.name) return -1;
+  return a.name > b.name ? 1 : 0;
+}
+
+function canDescend(name: string, depth: number, maxDepth: number): boolean {
+  const skipped = name.startsWith('.') || SKIPPED_DIRECTORIES.has(name) || depth + 1 > maxDepth;
+  return !skipped;
+}
+
+function acceptsFile(name: string, relative: string, options: WalkOptions): boolean {
+  if (!options.extensions.some((ext) => name.endsWith(ext))) return false;
+  return options.filter === undefined || options.filter(relative);
+}
+
 export async function walkSourceFiles(root: string, options: WalkOptions): Promise<SourceFile[]> {
   const results: SourceFile[] = [];
   const maxDepth = options.maxDepth ?? DEFAULT_MAX_DEPTH;
-  const base = root.replace(/\/+$/, '');
+  const base = withoutTrailingSlashes(root);
 
   async function visit(absoluteDir: string, relativeDir: string, depth: number): Promise<void> {
     let entries;
@@ -29,19 +50,15 @@ export async function walkSourceFiles(root: string, options: WalkOptions): Promi
     } catch {
       return;
     }
-    entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    entries.sort(byName);
     for (const entry of entries) {
       if (results.length >= options.maxFiles) return;
       const absolute = `${absoluteDir}/${entry.name}`;
       const relative = relativeDir === '' ? entry.name : `${relativeDir}/${entry.name}`;
       if (entry.isSymbolicLink()) continue;
       if (entry.isDirectory()) {
-        if (entry.name.startsWith('.') || SKIPPED_DIRECTORIES.has(entry.name)) continue;
-        if (depth + 1 > maxDepth) continue;
-        await visit(absolute, relative, depth + 1);
-      } else if (entry.isFile()) {
-        if (!options.extensions.some((ext) => entry.name.endsWith(ext))) continue;
-        if (options.filter !== undefined && !options.filter(relative)) continue;
+        if (canDescend(entry.name, depth, maxDepth)) await visit(absolute, relative, depth + 1);
+      } else if (entry.isFile() && acceptsFile(entry.name, relative, options)) {
         results.push({ absolute, relative });
       }
     }
@@ -98,25 +115,32 @@ function entryType(entry: { isSymbolicLink(): boolean; isDirectory(): boolean; i
   return 'other';
 }
 
+function treeEntry(parent: { absolute: string; relative: string; depth: number }, dirent: { name: string; isSymbolicLink(): boolean; isDirectory(): boolean; isFile(): boolean }): TreeEntry {
+  return {
+    absolute: `${parent.absolute}/${dirent.name}`,
+    relative: parent.relative === '' ? dirent.name : `${parent.relative}/${dirent.name}`,
+    name: dirent.name,
+    type: entryType(dirent),
+    depth: parent.depth + 1,
+  };
+}
+
+function wantsDescend(entry: TreeEntry, options: TreeWalkOptions): boolean {
+  return entry.type === 'directory' && (options.descend === undefined || options.descend(entry));
+}
+
 export async function walkTree(root: string, options: TreeWalkOptions): Promise<TreeWalkResult> {
   const entries: TreeEntry[] = [];
   let truncated: TreeWalkResult['truncated'] = null;
   const queue: { absolute: string; relative: string; depth: number }[] = [{ absolute: root, relative: '', depth: 0 }];
-  for (let index = 0; index < queue.length; index++) {
-    const next = queue[index];
+  for (const next of queue) {
     const listed = await readdir(next.absolute, { withFileTypes: true });
-    listed.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    listed.sort(byName);
     for (const dirent of listed) {
       if (entries.length >= options.maxEntries) return { entries, truncated: 'entries' };
-      const entry: TreeEntry = {
-        absolute: `${next.absolute}/${dirent.name}`,
-        relative: next.relative === '' ? dirent.name : `${next.relative}/${dirent.name}`,
-        name: dirent.name,
-        type: entryType(dirent),
-        depth: next.depth + 1,
-      };
+      const entry = treeEntry(next, dirent);
       entries.push(entry);
-      if (entry.type !== 'directory' || (options.descend !== undefined && !options.descend(entry))) continue;
+      if (!wantsDescend(entry, options)) continue;
       if (entry.depth >= options.maxDepth) {
         truncated = truncated ?? 'depth';
         continue;

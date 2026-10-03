@@ -24,7 +24,7 @@ export interface VerifyIssue {
 export type VerifyVerdict = 'verified' | 'hashes-ok' | 'failed';
 
 export interface VerifyReport {
-  ok: HashesOkUnlessKeysGiven;
+  ok: boolean;
   verdict: VerifyVerdict;
   bundlePath: string;
   runId: string | null;
@@ -36,8 +36,6 @@ export interface VerifyReport {
   hashesOk: boolean;
   signature: SignatureReport;
 }
-
-export type HashesOkUnlessKeysGiven = boolean;
 
 export interface EvidenceTrace {
   recordId: string;
@@ -194,36 +192,48 @@ function validAbandoned(value: unknown): value is { path: string; bytes: number;
   return m !== null && isSafeName(m[1]);
 }
 
-export function parseManifest(content: Buffer | null): EvidenceManifest | null {
-  if (content === null) return null;
-  let m: unknown;
+function parseJson(content: Buffer): unknown {
   try {
-    m = JSON.parse(content.toString('utf8'));
+    return JSON.parse(content.toString('utf8'));
   } catch {
-    return null;
+    return undefined;
   }
-  if (!isRecord(m) || m.schema !== 'tessera.manifest/v1' || m.hashAlgorithm !== 'sha256') return null;
-  if (typeof m.runId !== 'string' || m.runId.length === 0) return null;
-  for (const key of ['workflowId', 'temporalRunId', 'sealedAt', 'retainUntil'] as const) {
-    if (typeof m[key] !== 'string') return null;
-  }
+}
+
+function validIdentity(m: Record<string, unknown>): boolean {
+  if (m.schema !== 'tessera.manifest/v1' || m.hashAlgorithm !== 'sha256') return false;
+  if (typeof m.runId !== 'string' || m.runId.length === 0) return false;
+  return (['workflowId', 'temporalRunId', 'sealedAt', 'retainUntil'] as const).every((key) => typeof m[key] === 'string');
+}
+
+function validProvenance(m: Record<string, unknown>): boolean {
   const source = m.source;
-  if (!isRecord(source) || typeof source.repoUrl !== 'string' || (source.revision !== null && typeof source.revision !== 'string')) return null;
-  if (!isRecord(m.framework) || m.framework.name !== 'tessera' || typeof m.framework.version !== 'string') return null;
+  if (!isRecord(source) || typeof source.repoUrl !== 'string' || (source.revision !== null && typeof source.revision !== 'string')) return false;
+  if (!isRecord(m.framework) || m.framework.name !== 'tessera' || typeof m.framework.version !== 'string') return false;
   const chain = m.chain;
-  if (!isRecord(chain) || chain.algorithm !== 'tessera-chain/v1' || !isHex(chain.genesis) || !isHex(chain.head)) return null;
-  if (!isHex(m.rootHash)) return null;
-  if (!Array.isArray(m.entries) || !m.entries.every(validEntry)) return null;
-  if (!Array.isArray(m.abandoned) || !m.abandoned.every(validAbandoned)) return null;
-  const entries = m.entries as ManifestEntry[];
+  if (!isRecord(chain) || chain.algorithm !== 'tessera-chain/v1' || !isHex(chain.genesis) || !isHex(chain.head)) return false;
+  return isHex(m.rootHash);
+}
+
+function validListing(entries: readonly ManifestEntry[], abandoned: readonly { path: string }[]): boolean {
   for (let i = 1; i < entries.length; i++) {
-    if (compareBytes(entries[i - 1].path, entries[i].path) >= 0) return null;
+    if (compareBytes(entries[i - 1].path, entries[i].path) >= 0) return false;
   }
   const seen = new Set(entries.map((e) => e.path));
-  for (const a of m.abandoned as { path: string }[]) {
-    if (seen.has(a.path)) return null;
+  for (const a of abandoned) {
+    if (seen.has(a.path)) return false;
     seen.add(a.path);
   }
+  return true;
+}
+
+export function parseManifest(content: Buffer | null): EvidenceManifest | null {
+  if (content === null) return null;
+  const m = parseJson(content);
+  if (!isRecord(m) || !validIdentity(m) || !validProvenance(m)) return null;
+  if (!Array.isArray(m.entries) || !m.entries.every(validEntry)) return null;
+  if (!Array.isArray(m.abandoned) || !m.abandoned.every(validAbandoned)) return null;
+  if (!validListing(m.entries as ManifestEntry[], m.abandoned as { path: string }[])) return null;
   return m as unknown as EvidenceManifest;
 }
 
@@ -286,40 +296,38 @@ function verdictFor(hashesOk: boolean, keysGiven: boolean, signature: SignatureR
   return signature.status === 'valid' ? 'verified' : 'failed';
 }
 
-export async function verifyEvidenceBundle(bundleDir: string, opts: VerifyOptions = {}): Promise<VerifyReport> {
-  await assertBundleDir(bundleDir);
-  const expectRoot = typeof opts.expectRootHash === 'string' ? opts.expectRootHash.trim().toLowerCase() : undefined;
-  const manifest = await readManifest(bundleDir);
-  const signature = await verifyBundleSignature(bundleDir, { trustedKeys: Array.isArray(opts.trustedKeys) ? opts.trustedKeys : [] });
-  const signatureOk = opts.trustedKeys === undefined || signature.status === 'valid';
-  if (manifest === null) {
-    return {
-      ok: false,
-      bundlePath: bundleDir,
-      runId: null,
-      rootHash: null,
-      manifestRootHash: null,
-      rootMatches: expectRoot === undefined ? null : false,
-      checkedEntries: 0,
-      issues: [{ path: MANIFEST_FILE, problem: 'invalid-record' }],
-      hashesOk: false,
-      signature,
-      verdict: 'failed',
-    };
-  }
+function unreadableManifestReport(bundleDir: string, expectRoot: string | undefined, signature: SignatureReport): VerifyReport {
+  return {
+    ok: false,
+    bundlePath: bundleDir,
+    runId: null,
+    rootHash: null,
+    manifestRootHash: null,
+    rootMatches: expectRoot === undefined ? null : false,
+    checkedEntries: 0,
+    issues: [{ path: MANIFEST_FILE, problem: 'invalid-record' }],
+    hashesOk: false,
+    signature,
+    verdict: 'failed',
+  };
+}
 
+type ReportIssue = (issue: VerifyIssue) => void;
+
+function issueCollector(): { issues: Map<string, VerifyIssue>; report: ReportIssue } {
   const issues = new Map<string, VerifyIssue>();
   const report = (issue: VerifyIssue): void => {
     const current = issues.get(issue.path);
     if (current === undefined || PRIORITY[issue.problem] < PRIORITY[current.problem]) issues.set(issue.path, issue);
   };
+  return { issues, report };
+}
 
-  const { nodes, emptyDirs } = await walkBundle(bundleDir);
+function reportUnexpected(nodes: Map<string, NodeKind>, emptyDirs: string[], manifest: EvidenceManifest, report: ReportIssue): void {
   const expected = new Set<string>([MANIFEST_FILE, SUMS_FILE]);
   if (nodes.get(SIGNATURE_FILE) === 'file') expected.add(SIGNATURE_FILE);
   for (const e of manifest.entries) expected.add(e.path);
   for (const a of manifest.abandoned) expected.add(a.path);
-
   for (const [rel, kind] of nodes) {
     if (kind === 'dir') continue;
     if (!expected.has(rel) || kind !== 'file') report({ path: rel, problem: 'extra' });
@@ -327,7 +335,12 @@ export async function verifyEvidenceBundle(bundleDir: string, opts: VerifyOption
   for (const rel of emptyDirs) {
     if (!ALLOWED_DIRS.has(rel)) report({ path: rel, problem: 'extra' });
   }
-  const checkFile = async (rel: string, sha256: string, bytes: number, keep: number): Promise<HashedContent | null> => {
+}
+
+type FileCheck = (rel: string, sha256: string, bytes: number, keep: number) => Promise<HashedContent | null>;
+
+function fileChecker(bundleDir: string, nodes: Map<string, NodeKind>, report: ReportIssue): FileCheck {
+  return async (rel, sha256, bytes, keep) => {
     if (nodes.get(rel) !== 'file') {
       if (!nodes.has(rel) || nodes.get(rel) === 'dir') report({ path: rel, problem: 'missing' });
       return null;
@@ -347,7 +360,9 @@ export async function verifyEvidenceBundle(bundleDir: string, opts: VerifyOption
     }
     return read;
   };
+}
 
+async function checkContents(manifest: EvidenceManifest, checkFile: FileCheck, report: ReportIssue): Promise<void> {
   for (const entry of manifest.entries) {
     const read = await checkFile(entry.path, entry.sha256, entry.bytes, entry.kind === 'record' ? MAX_RECORD_BYTES : 0);
     if (read === null || entry.kind !== 'record') continue;
@@ -360,7 +375,9 @@ export async function verifyEvidenceBundle(bundleDir: string, opts: VerifyOption
   const sumsBytes = Buffer.byteLength(sums, 'utf8');
   const sumsHash = sha256Hex(sums);
   await checkFile(SUMS_FILE, sumsHash, sumsBytes, 0);
+}
 
+function checkChain(manifest: EvidenceManifest, report: ReportIssue): string {
   const genesis = chainGenesis(manifest.runId);
   let prev = genesis;
   manifest.entries.forEach((entry, i) => {
@@ -378,6 +395,22 @@ export async function verifyEvidenceBundle(bundleDir: string, opts: VerifyOption
   } else if (manifest.rootHash !== head) {
     report({ path: MANIFEST_FILE, problem: 'chain-broken', expected: head, actual: manifest.rootHash });
   }
+  return head;
+}
+
+export async function verifyEvidenceBundle(bundleDir: string, opts: VerifyOptions = {}): Promise<VerifyReport> {
+  await assertBundleDir(bundleDir);
+  const expectRoot = typeof opts.expectRootHash === 'string' ? opts.expectRootHash.trim().toLowerCase() : undefined;
+  const manifest = await readManifest(bundleDir);
+  const signature = await verifyBundleSignature(bundleDir, { trustedKeys: Array.isArray(opts.trustedKeys) ? opts.trustedKeys : [] });
+  const signatureOk = opts.trustedKeys === undefined || signature.status === 'valid';
+  if (manifest === null) return unreadableManifestReport(bundleDir, expectRoot, signature);
+
+  const { issues, report } = issueCollector();
+  const { nodes, emptyDirs } = await walkBundle(bundleDir);
+  reportUnexpected(nodes, emptyDirs, manifest, report);
+  await checkContents(manifest, fileChecker(bundleDir, nodes, report), report);
+  const head = checkChain(manifest, report);
 
   const rootMatches = expectRoot === undefined ? null : expectRoot === head;
   const sorted = [...issues.values()].sort((a, b) => compareBytes(a.path, b.path));
@@ -414,7 +447,7 @@ export async function traceEvidence(bundleDir: string, recordId: string): Promis
   for (const ref of [record.output, record.stderr]) {
     if (ref === null || ref === undefined) continue;
     const listed = byPath.get(ref.path);
-    if (listed === undefined || listed.kind !== 'artifact' || listed.sha256 !== ref.sha256) {
+    if (listed?.kind !== 'artifact' || listed.sha256 !== ref.sha256) {
       throw new Error(`evidence trace: artifact ${String(ref.path)} does not match the manifest`);
     }
     artifacts.push({ path: ref.path, sha256: ref.sha256, rawSha256: ref.rawSha256 });

@@ -55,7 +55,7 @@ const HASH_CHUNK = 64 * 1024;
 const NEUTRAL_SUFFIX = '.tessera-neutralized';
 const MAX_NEUTRAL_NAMES = 100;
 const SHA256_HEX = /^[0-9a-f]{64}$/;
-const MARKER_DETAIL = /^inline marker "([a-z:]{1,32})" x([1-9][0-9]{0,9})$/;
+const MARKER_DETAIL = /^inline marker "([a-z:]{1,32})" x([1-9]\d{0,9})$/;
 const KINDS: ReadonlySet<string> = new Set(['control-file', 'inline-marker', 'project-config']);
 const NEUTRALIZATIONS: ReadonlySet<string> = new Set(['removed-from-working-copy', 'framework-flag', 'isolated-working-dir', 'reported-as-finding']);
 
@@ -78,18 +78,18 @@ export interface ProbeResult {
   truncation?: string;
 }
 
-function isControlCode(code: number): boolean {
-  return code < 32 || code === 127;
+function isControlChar(char: string): boolean {
+  return char < ' ' || char === '\u007f';
 }
 
 function hasControlChars(text: string): boolean {
-  for (let i = 0; i < text.length; i++) if (isControlCode(text.charCodeAt(i))) return true;
+  for (const char of text) if (isControlChar(char)) return true;
   return false;
 }
 
 export function replaceControlChars(text: string, replacement: string): string {
   let out = '';
-  for (let i = 0; i < text.length; i++) out += isControlCode(text.charCodeAt(i)) ? replacement : text[i];
+  for (const char of text) out += isControlChar(char) ? replacement : char;
   return out;
 }
 
@@ -105,8 +105,7 @@ export function parseInlineMarkerDetail(detail: string): { marker: InlineMarker;
 }
 
 function lastSegment(relative: string): string {
-  const parts = relative.split('/');
-  return parts[parts.length - 1];
+  return relative.slice(relative.lastIndexOf('/') + 1);
 }
 
 function controlRule(name: string): ControlFileRule | undefined {
@@ -176,7 +175,8 @@ function safeRelative(relative: string): string {
 }
 
 function compare(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
+  if (a < b) return -1;
+  return a > b ? 1 : 0;
 }
 
 function typeOf(st: Stats): TreeEntryType {
@@ -221,7 +221,8 @@ async function checkedEntry(probeRoot: ProbeRoot, entry: TreeEntry): Promise<Sta
 
 async function freeNeutralName(absolute: string): Promise<string> {
   for (let i = 0; i < MAX_NEUTRAL_NAMES; i++) {
-    const candidate = `${absolute}${NEUTRAL_SUFFIX}${i === 0 ? '' : `-${i}`}`;
+    const counter = i === 0 ? '' : `-${i}`;
+    const candidate = `${absolute}${NEUTRAL_SUFFIX}${counter}`;
     try {
       await lstat(candidate);
     } catch (err) {
@@ -293,7 +294,7 @@ async function neutralizeControlFile(probeRoot: ProbeRoot, entry: TreeEntry, rul
 function markerAttempts(entry: TreeEntry, text: string): OverrideAttempt[] {
   const out: OverrideAttempt[] = [];
   for (const rule of MARKER_RULES) {
-    const count = text.match(rule.pattern)?.length ?? 0;
+    const count = [...text.matchAll(rule.pattern)].length;
     if (count > 0) out.push({ kind: 'inline-marker', path: safeRelative(entry.relative), detail: inlineMarkerDetail(rule.marker, count), neutralizedBy: 'framework-flag' });
   }
   return out;
@@ -301,6 +302,38 @@ function markerAttempts(entry: TreeEntry, text: string): OverrideAttempt[] {
 
 function byPathThenDetail(a: OverrideAttempt, b: OverrideAttempt): number {
   return compare(a.path, b.path) || compare(a.detail, b.detail);
+}
+
+interface MarkerLimits {
+  maxFiles: number;
+  maxBytes: number;
+  maxFileBytes: number;
+}
+
+function markerLimitReached(filesScanned: number, bytesRead: number, limits: MarkerLimits): string | null {
+  if (filesScanned >= limits.maxFiles) return `marker file limit ${limits.maxFiles} reached`;
+  if (bytesRead >= limits.maxBytes) return `marker byte limit ${limits.maxBytes} reached`;
+  return null;
+}
+
+async function scanMarkers(entries: readonly TreeEntry[], limits: MarkerLimits, truncation: string[]): Promise<{ markers: OverrideAttempt[]; markerFilesScanned: number }> {
+  const markers: OverrideAttempt[] = [];
+  let markerFilesScanned = 0;
+  let markerBytes = 0;
+  for (const entry of entries) {
+    if (entry.type !== 'file' || controlRule(entry.name) !== undefined) continue;
+    const limit = markerLimitReached(markerFilesScanned, markerBytes, limits);
+    if (limit !== null) {
+      truncation.push(limit);
+      break;
+    }
+    const text = await readSourceFile(entry.absolute, limits.maxFileBytes);
+    if (text === null) continue;
+    markerFilesScanned += 1;
+    markerBytes += Buffer.byteLength(text, 'utf8');
+    if (!text.includes('\u0000')) markers.push(...markerAttempts(entry, text));
+  }
+  return { markers, markerFilesScanned };
 }
 
 export async function probeSource(repoDir: string, options: ProbeOptions = {}): Promise<ProbeResult> {
@@ -324,25 +357,7 @@ export async function probeSource(repoDir: string, options: ProbeOptions = {}): 
     if (rule !== undefined) controls.push(await neutralizeControlFile(probeRoot, entry, rule, maxFileBytes));
   }
 
-  const markers: OverrideAttempt[] = [];
-  let markerFilesScanned = 0;
-  let markerBytes = 0;
-  for (const entry of walk.entries) {
-    if (entry.type !== 'file' || controlRule(entry.name) !== undefined) continue;
-    if (markerFilesScanned >= maxMarkerFiles) {
-      truncation.push(`marker file limit ${maxMarkerFiles} reached`);
-      break;
-    }
-    if (markerBytes >= maxMarkerBytes) {
-      truncation.push(`marker byte limit ${maxMarkerBytes} reached`);
-      break;
-    }
-    const text = await readSourceFile(entry.absolute, maxFileBytes);
-    if (text === null) continue;
-    markerFilesScanned += 1;
-    markerBytes += Buffer.byteLength(text, 'utf8');
-    if (!text.includes('\u0000')) markers.push(...markerAttempts(entry, text));
-  }
+  const { markers, markerFilesScanned } = await scanMarkers(walk.entries, { maxFiles: maxMarkerFiles, maxBytes: maxMarkerBytes, maxFileBytes }, truncation);
 
   controls.sort(byPathThenDetail);
   markers.sort(byPathThenDetail);

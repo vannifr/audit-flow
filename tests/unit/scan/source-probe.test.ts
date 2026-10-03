@@ -404,3 +404,19 @@ describe('override attempt helpers', () => {
     expect(extra).toEqual([attempts[0]]);
   });
 });
+
+describe('probeSource: marker byte limit and control characters', () => {
+  it('stops scanning once the byte limit is reached exactly', async () => {
+    await put('a.ts', 'abcd');
+    await put('b.ts', '// nosec');
+    const result = await probeSource(repo, { maxMarkerBytes: 4 });
+    expect(result.markerFilesScanned).toBe(1);
+    expect(result.inlineMarkers).toBe(0);
+    expect(result.truncation).toBe('marker byte limit 4 reached');
+  });
+
+  it('replaces every character below 0x20 and 0x7f', async () => {
+    const { replaceControlChars } = await import('../../../src/scan/source-probe');
+    expect(replaceControlChars('a\u001fb\u007f c\u0000', '?')).toBe('a?b? c?');
+  });
+});

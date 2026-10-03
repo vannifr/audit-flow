@@ -111,3 +111,13 @@ describe('readSourceFile', () => {
     expect(await readSourceFile(path.join(root, 'missing.js'), 1024)).toBeNull();
   });
 });
+
+describe('walkSourceFiles root form', () => {
+  it('strips every trailing slash from the root', async () => {
+    await mkdir(path.join(root, 'd'));
+    for (const rel of ['c.ts', 'a.ts', 'b.ts', 'd/e.ts', 'B.ts']) await writeFile(path.join(root, rel), 'x');
+    const files = await walkSourceFiles(`${root}//`, OPTS);
+    expect(files.map((f) => f.relative)).toEqual(['B.ts', 'a.ts', 'b.ts', 'c.ts', 'd/e.ts']);
+    expect(files[0].absolute).toBe(`${root}/B.ts`);
+  });
+});

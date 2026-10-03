@@ -113,18 +113,13 @@ function artifactRecordId(name: string, referenced: Map<string, string>, recordI
     if (name.startsWith(`${id}.`) && (best === undefined || id.length > best.length)) best = id;
   }
   if (best !== undefined) return best;
-  const attempt = /^(.+\.a[1-9][0-9]*)\./.exec(name);
+  const attempt = /^(.+\.a[1-9]\d*)\./.exec(name);
   if (attempt !== null && isSafeName(attempt[1])) return attempt[1];
   const dot = name.lastIndexOf('.');
   return dot > 0 ? name.slice(0, dot) : name;
 }
 
-async function scanBundle(bundleDir: string, runId: string): Promise<ScannedBundle> {
-  const root = await listDir(bundleDir, '.');
-  const files: ScannedFile[] = [];
-  const abandoned: ScannedBundle['abandoned'] = [];
-  const referenced = new Map<string, string>();
-  const recordIds: string[] = [];
+function rootLayout(root: import('node:fs').Dirent[]): { hasRecords: boolean; hasArtifacts: boolean } {
   let hasRecords = false;
   let hasArtifacts = false;
   for (const d of root) {
@@ -132,55 +127,84 @@ async function scanBundle(bundleDir: string, runId: string): Promise<ScannedBund
     else if (d.name === 'artifacts' && d.isDirectory()) hasArtifacts = true;
     else fail(`unexpected entry ${d.name} in the bundle`);
   }
+  return { hasRecords, hasArtifacts };
+}
 
-  if (hasRecords) {
-    for (const d of await listDir(bundleDir, 'records')) {
-      const rel = `records/${d.name}`;
-      if (d.name === '.staging' && d.isDirectory()) {
-        for (const s of await listDir(bundleDir, rel)) {
-          const srel = `${rel}/${s.name}`;
-          if (!s.isFile() || !isSafeName(s.name)) fail(`unexpected entry ${srel}`);
-          const hashed = await hashFile(bundleDir, srel, 0);
-          abandoned.push({ path: srel, bytes: hashed.bytes, sha256: hashed.sha256 });
-        }
-        continue;
-      }
-      const stem = d.name.endsWith('.json') ? d.name.slice(0, -'.json'.length) : '';
-      if (!d.isFile() || !isSafeName(d.name) || !isSafeName(stem)) fail(`unexpected entry ${rel}`);
-      const hashed = await hashFile(bundleDir, rel, MAX_RECORD_BYTES);
-      if (hashed.content === null) fail(`record ${rel} is too large`);
-      let rec: Record<string, unknown>;
-      try {
-        rec = JSON.parse(hashed.content.toString('utf8')) as Record<string, unknown>;
-      } catch {
-        fail(`record ${rel} is not valid JSON`);
-      }
-      if (typeof rec !== 'object' || rec === null || rec.schema !== 'tessera.evidence/v1') fail(`record ${rel} is not a tessera.evidence/v1 record`);
-      if (rec.runId !== runId) fail(`record ${rel} runId mismatch: expected ${runId}`);
-      if (rec.id !== stem) fail(`record ${rel} id does not match its file name`);
-      for (const ref of [rec.output, rec.stderr]) {
-        if (typeof ref === 'object' && ref !== null && typeof (ref as { path?: unknown }).path === 'string') {
-          const refPath = (ref as { path: string }).path;
-          if (!referenced.has(refPath)) referenced.set(refPath, stem);
-        }
-      }
-      recordIds.push(stem);
-      files.push({ path: rel, kind: 'record', recordId: stem, bytes: hashed.bytes, sha256: hashed.sha256 });
+async function scanStaging(bundleDir: string, rel: string, abandoned: ScannedBundle['abandoned']): Promise<void> {
+  for (const s of await listDir(bundleDir, rel)) {
+    const srel = `${rel}/${s.name}`;
+    if (!s.isFile() || !isSafeName(s.name)) fail(`unexpected entry ${srel}`);
+    const hashed = await hashFile(bundleDir, srel, 0);
+    abandoned.push({ path: srel, bytes: hashed.bytes, sha256: hashed.sha256 });
+  }
+}
+
+function parseRecord(rel: string, content: Buffer | null): Record<string, unknown> {
+  if (content === null) fail(`record ${rel} is too large`);
+  let rec: Record<string, unknown>;
+  try {
+    rec = JSON.parse(content.toString('utf8')) as Record<string, unknown>;
+  } catch {
+    fail(`record ${rel} is not valid JSON`);
+  }
+  return rec;
+}
+
+function checkRecord(rec: Record<string, unknown>, rel: string, runId: string, stem: string): void {
+  if (typeof rec !== 'object' || rec?.schema !== 'tessera.evidence/v1') fail(`record ${rel} is not a tessera.evidence/v1 record`);
+  if (rec.runId !== runId) fail(`record ${rel} runId mismatch: expected ${runId}`);
+  if (rec.id !== stem) fail(`record ${rel} id does not match its file name`);
+}
+
+function noteReferences(rec: Record<string, unknown>, stem: string, referenced: Map<string, string>): void {
+  for (const ref of [rec.output, rec.stderr]) {
+    if (typeof ref === 'object' && ref !== null && typeof (ref as { path?: unknown }).path === 'string') {
+      const refPath = (ref as { path: string }).path;
+      if (!referenced.has(refPath)) referenced.set(refPath, stem);
     }
   }
+}
 
-  if (hasArtifacts) {
-    for (const d of await listDir(bundleDir, 'artifacts')) {
-      const rel = `artifacts/${d.name}`;
-      if (!d.isFile() || !isSafeName(d.name)) fail(`unexpected entry ${rel}`);
-      const hashed = await hashFile(bundleDir, rel, 0);
-      files.push({ path: rel, kind: 'artifact', recordId: artifactRecordId(d.name, referenced, recordIds), bytes: hashed.bytes, sha256: hashed.sha256 });
+async function scanRecord(bundleDir: string, d: import('node:fs').Dirent, runId: string, referenced: Map<string, string>): Promise<ScannedFile> {
+  const rel = `records/${d.name}`;
+  const stem = d.name.endsWith('.json') ? d.name.slice(0, -'.json'.length) : '';
+  if (!d.isFile() || !isSafeName(d.name) || !isSafeName(stem)) fail(`unexpected entry ${rel}`);
+  const hashed = await hashFile(bundleDir, rel, MAX_RECORD_BYTES);
+  const rec = parseRecord(rel, hashed.content);
+  checkRecord(rec, rel, runId, stem);
+  noteReferences(rec, stem, referenced);
+  return { path: rel, kind: 'record', recordId: stem, bytes: hashed.bytes, sha256: hashed.sha256 };
+}
+
+async function scanRecords(bundleDir: string, runId: string, scan: ScannedBundle & { referenced: Map<string, string>; recordIds: string[] }): Promise<void> {
+  for (const d of await listDir(bundleDir, 'records')) {
+    if (d.name === '.staging' && d.isDirectory()) {
+      await scanStaging(bundleDir, `records/${d.name}`, scan.abandoned);
+      continue;
     }
+    const file = await scanRecord(bundleDir, d, runId, scan.referenced);
+    scan.recordIds.push(file.recordId);
+    scan.files.push(file);
   }
+}
 
-  files.sort((a, b) => compareBytes(a.path, b.path));
-  abandoned.sort((a, b) => compareBytes(a.path, b.path));
-  return { files, abandoned };
+async function scanArtifacts(bundleDir: string, files: ScannedFile[], referenced: Map<string, string>, recordIds: string[]): Promise<void> {
+  for (const d of await listDir(bundleDir, 'artifacts')) {
+    const rel = `artifacts/${d.name}`;
+    if (!d.isFile() || !isSafeName(d.name)) fail(`unexpected entry ${rel}`);
+    const hashed = await hashFile(bundleDir, rel, 0);
+    files.push({ path: rel, kind: 'artifact', recordId: artifactRecordId(d.name, referenced, recordIds), bytes: hashed.bytes, sha256: hashed.sha256 });
+  }
+}
+
+async function scanBundle(bundleDir: string, runId: string): Promise<ScannedBundle> {
+  const { hasRecords, hasArtifacts } = rootLayout(await listDir(bundleDir, '.'));
+  const scan = { files: [] as ScannedFile[], abandoned: [] as ScannedBundle['abandoned'], referenced: new Map<string, string>(), recordIds: [] as string[] };
+  if (hasRecords) await scanRecords(bundleDir, runId, scan);
+  if (hasArtifacts) await scanArtifacts(bundleDir, scan.files, scan.referenced, scan.recordIds);
+  scan.files.sort((a, b) => compareBytes(a.path, b.path));
+  scan.abandoned.sort((a, b) => compareBytes(a.path, b.path));
+  return { files: scan.files, abandoned: scan.abandoned };
 }
 
 async function removeStale(bundleDir: string, name: string): Promise<void> {
@@ -218,6 +242,11 @@ function validateOptions(opts: SealOptions): void {
   if (typeof opts.source?.repoUrl !== 'string' || (opts.source.revision !== null && typeof opts.source.revision !== 'string')) fail('invalid source');
   if (!Array.isArray(opts.usedRecordIds) || !opts.usedRecordIds.every((id) => typeof id === 'string')) fail('usedRecordIds must be strings');
   if (typeof opts.clock !== 'function') fail('clock is required');
+}
+
+function issueSummary(issues: readonly { problem: string; path: string }[]): string {
+  const summary = issues.slice(0, 5).map((i) => `${i.problem} ${i.path}`).join(', ');
+  return summary.length > 0 ? `: ${summary}` : '';
 }
 
 function resultFrom(bundlePath: string, manifest: EvidenceManifest): SealEvidenceResult {
@@ -286,10 +315,7 @@ export async function sealEvidenceBundle(opts: SealOptions): Promise<SealEvidenc
   await chmod(bundleDir, SEALED_DIR_MODE);
 
   const report = await verifyEvidenceBundle(bundleDir, { expectRootHash: manifest.rootHash });
-  if (!report.ok) {
-    const summary = report.issues.slice(0, 5).map((i) => `${i.problem} ${i.path}`).join(', ');
-    fail(`self-verification failed${summary.length > 0 ? `: ${summary}` : ''}`);
-  }
+  if (!report.ok) fail(`self-verification failed${issueSummary(report.issues)}`);
   return resultFrom(bundleDir, manifest);
 }
 
@@ -304,11 +330,8 @@ export async function openSealedBundle(bundleDir: string, runId: string): Promis
   }
   if (((await lstat(dir)).mode & 0o777) !== SEALED_DIR_MODE) await chmod(dir, SEALED_DIR_MODE);
   const report = await verifyEvidenceBundle(dir);
-  if (!report.ok || report.runId !== runId) {
-    const summary = report.issues.slice(0, 5).map((i) => `${i.problem} ${i.path}`).join(', ');
-    fail(`existing seal does not verify${summary.length > 0 ? `: ${summary}` : ''}`);
-  }
+  if (!report.ok || report.runId !== runId) fail(`existing seal does not verify${issueSummary(report.issues)}`);
   const manifest = await readManifest(dir);
-  if (manifest === null || manifest.rootHash !== report.rootHash) fail('existing seal does not verify');
+  if (manifest?.rootHash !== report.rootHash) fail('existing seal does not verify');
   return resultFrom(dir, manifest);
 }

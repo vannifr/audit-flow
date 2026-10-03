@@ -396,3 +396,73 @@ describe('sealEvidenceBundle: self-verification, byte order and refusals', () =>
     await expect(sealEvidenceBundle(opts(extra as Partial<SealOptions>))).rejects.toThrow(/evidence seal:/);
   });
 });
+
+describe('sealEvidenceBundle: record references and seal summaries', () => {
+  let root: string;
+  let bundle: string;
+
+  beforeEach(async () => {
+    root = await mkdtemp(path.join(tmpdir(), 'tessera-seal-refs-'));
+    bundle = path.join(root, RUN);
+  });
+
+  afterEach(async () => {
+    const { readdir: list } = await import('node:fs/promises');
+    await chmod(bundle, 0o700).catch(() => undefined);
+    for (const sub of ['artifacts', 'records']) {
+      await chmod(path.join(bundle, sub), 0o700).catch(() => undefined);
+      for (const f of await list(path.join(bundle, sub)).catch(() => [] as string[])) await chmod(path.join(bundle, sub, f), 0o600).catch(() => undefined);
+    }
+    await rm(root, { recursive: true, force: true });
+  });
+
+  async function writeRaw(files: Record<string, string>): Promise<void> {
+    const { mkdir } = await import('node:fs/promises');
+    for (const [rel, content] of Object.entries(files)) {
+      await mkdir(path.dirname(path.join(bundle, rel)), { recursive: true });
+      await writeFile(path.join(bundle, rel), content);
+    }
+  }
+
+  const rec = (id: string, output?: string): string => JSON.stringify({ schema: 'tessera.evidence/v1', runId: RUN, id, ...(output ? { output: { path: output } } : {}) });
+
+  const opts = (): SealOptions => ({
+    bundleDir: bundle,
+    runId: RUN,
+    workflowId: 'wf-1',
+    temporalRunId: 'temporal-1',
+    source: { repoUrl: 'https://example.invalid/repo.git', revision: null },
+    frameworkVersion: '1.2.3',
+    usedRecordIds: [],
+    clock: () => NOW,
+  });
+
+  it('attributes an artifact to the first record, in byte order, that references it', async () => {
+    await writeRaw({
+      'records/x.json': rec('x', 'artifacts/x.a1.out'),
+      'records/x.a1.json': rec('x.a1', 'artifacts/x.a1.out'),
+      'artifacts/x.a1.out': 'out',
+    });
+    await sealEvidenceBundle(opts());
+    const manifest = JSON.parse(await readFile(path.join(bundle, 'manifest.json'), 'utf8')) as EvidenceManifest;
+    expect(manifest.entries.find((e) => e.path === 'artifacts/x.a1.out')?.recordId).toBe('x.a1');
+  });
+
+  it('lists at most five problems when an existing seal does not verify', async () => {
+    const files: Record<string, string> = { 'records/r.json': rec('r') };
+    for (let i = 1; i <= 7; i++) files[`artifacts/r.${i}`] = `v${i}`;
+    await writeRaw(files);
+    await sealEvidenceBundle(opts());
+    await chmod(bundle, 0o700);
+    await chmod(path.join(bundle, 'artifacts'), 0o700);
+    for (let i = 1; i <= 7; i++) {
+      await chmod(path.join(bundle, `artifacts/r.${i}`), 0o600);
+      await writeFile(path.join(bundle, `artifacts/r.${i}`), `changed${i}`);
+    }
+    const { openSealedBundle } = await import('../../../src/evidence/manifest');
+    await expect(openSealedBundle(bundle, RUN)).rejects.toThrow(
+      'evidence seal: existing seal does not verify: modified artifacts/r.1, modified artifacts/r.2, modified artifacts/r.3, modified artifacts/r.4, modified artifacts/r.5',
+    );
+    await expect(openSealedBundle(bundle, RUN)).rejects.not.toThrow('artifacts/r.6');
+  });
+});

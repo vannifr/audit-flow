@@ -5,15 +5,17 @@ const MIN_FRAGMENT = 8;
 
 const AWS_KEY = /(?<![A-Za-z0-9])(?:AKIA|ASIA)[A-Z0-9]{16}(?![A-Za-z0-9])/g;
 const JWT = /(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g;
-const GITHUB_TOKEN = /(?<![A-Za-z0-9_])(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,})/g;
+const GITHUB_TOKEN = /(?<!\w)(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_\w{22,})/g;
 const SLACK_TOKEN = /(?<![A-Za-z0-9])xox[abposr]-[A-Za-z0-9-]{10,}/g;
 const URL_CREDENTIALS = /(?<![A-Za-z0-9+.-])([A-Za-z][A-Za-z0-9+.-]{0,20}:\/\/)([^\s/@:]*:[^\s/@]+)@/g;
-const AUTH_HEADER =
-  /(authorization["']?[ \t]{0,3}[:=][ \t]{0,3}["']?)?(?<![A-Za-z0-9])(bearer|basic)([ \t]{1,5})([A-Za-z0-9+/=._~-]{8,})/gi;
-const PASSWORD_PREFIX =
-  /(?:password|passwd|passphrase|pwd)[A-Za-z0-9_-]{0,32}(?:\\*["'])?[ \t]{0,5}(?::=|=>|=|:)[ \t]{0,5}/gi;
-const KEYED_TOKEN =
-  /((?:api[_-]?key|secret|token|key|credentials?)[A-Za-z0-9_-]{0,32}(?:\\*["'])?[ \t]{0,5}(?::=|=>|=|:)[ \t]{0,5}(?:\\*["'])?)((?:[A-Za-z0-9+/_-]|\\\/|\\u[0-9A-Fa-f]{4}){20,}(?:=|\\u003[dD]){0,2})/gi;
+const AUTH_HEADER_PREFIX = /authorization["']?[ \t]{0,3}[:=][ \t]{0,3}["']?/i;
+const AUTH_HEADER_CREDENTIAL = /(?<![a-z0-9])(bearer|basic)([ \t]{1,5})([a-z0-9+/=._~-]{8,})/i;
+const AUTH_HEADER = new RegExp(`(${AUTH_HEADER_PREFIX.source})?${AUTH_HEADER_CREDENTIAL.source}`, "gi");
+const PASSWORD_PREFIX = /(?:password|passwd|passphrase|pwd)[\w-]{0,32}(?:\\*["'])?[ \t]{0,5}(?::=|=>|=|:)[ \t]{0,5}/gi;
+const KEYED_NAME = /(?:api[_-]?key|secret|token|key|credentials?)[\w-]{0,32}(?:\\*["'])?/i;
+const KEYED_ASSIGNMENT = /[ \t]{0,5}(?::=|=>|=|:)[ \t]{0,5}(?:\\*["'])?/;
+const KEYED_VALUE = /(?:[\w+/-]|\\\/|\\u[\da-f]{4}){20,}(?:=|\\u003d){0,2}/i;
+const KEYED_TOKEN = new RegExp(`(${KEYED_NAME.source}${KEYED_ASSIGNMENT.source})(${KEYED_VALUE.source})`, "gi");
 const PRIVATE_KEY_BEGIN = /-----BEGIN [A-Z0-9 ]{0,40}PRIVATE KEY(?: BLOCK)?-----/y;
 const PRIVATE_KEY_END = /-----END [A-Z0-9 ]{0,40}PRIVATE KEY(?: BLOCK)?-----/y;
 
@@ -26,18 +28,24 @@ function tag(type: string): string {
 }
 
 function toBase64Url(value: string): string {
-  return value.replace(/\+/g, "-").replace(/\//g, "_");
+  return value.replaceAll("+", "-").replaceAll("/", "_");
+}
+
+function withoutPadding(encoded: string): string {
+  let end = encoded.length;
+  while (end > 0 && encoded[end - 1] === "=") end--;
+  return encoded.slice(0, end);
 }
 
 function encodedForms(secret: string): string[] {
   const forms: string[] = [secret];
   const json = JSON.stringify(secret).slice(1, -1);
-  forms.push(json, json.replace(/\//g, "\\/"));
+  forms.push(json, json.replaceAll("/", String.raw`\/`));
   const percent = encodeURIComponent(secret);
   forms.push(
     percent,
     percent.replace(/%[0-9A-F]{2}/g, (m) => m.toLowerCase()),
-    percent.replace(/%20/g, "+"),
+    percent.replaceAll("%20", "+"),
   );
   const bytes = Buffer.from(secret, "utf8");
   const hex = bytes.toString("hex");
@@ -45,7 +53,7 @@ function encodedForms(secret: string): string[] {
   const base64: string[] = [];
   for (let offset = 0; offset < 3; offset++) {
     const encoded = Buffer.concat([Buffer.alloc(offset), bytes]).toString("base64");
-    if (offset === 0) base64.push(encoded, encoded.replace(/=+$/, ""));
+    if (offset === 0) base64.push(encoded, withoutPadding(encoded));
     const core = encoded.slice(Math.ceil((8 * offset) / 6), Math.floor((8 * (offset + bytes.length)) / 6));
     if (core.length >= MIN_FRAGMENT) base64.push(core);
   }
@@ -125,7 +133,7 @@ function redactPrivateKeys(text: string): { text: string; redactions: number } {
 }
 
 function hasLetterAndDigit(value: string): boolean {
-  return /[A-Za-z]/.test(value) && /[0-9]/.test(value);
+  return /[A-Za-z]/.test(value) && /\d/.test(value);
 }
 
 type Redaction = { text: string; redactions: number };
@@ -135,38 +143,67 @@ type Rule =
 
 function backslashRun(text: string, at: number): number {
   let end = at;
-  while (text.charCodeAt(end) === 92) end++;
+  while (text.codePointAt(end) === 92) end++;
   return end - at;
 }
 
 type ValueSpan = { lead: string; bodyStart: number; bodyEnd: number; trail: string; end: number };
 
+type QuotedScan = {
+  text: string;
+  lead: string;
+  bodyStart: number;
+  run: number;
+  quote: string;
+  anyDouble: boolean;
+  newlineRun: number;
+};
+
+type QuotedStep = ValueSpan | "stop" | "next";
+
+function isLineBreak(char: string | undefined): boolean {
+  return char === "\r" || char === "\n";
+}
+
+function closingQuote(scan: QuotedScan, at: number, count: number): QuotedStep {
+  if (count < scan.run) return "stop";
+  if ((count - scan.run) % (2 * (scan.run + 1)) !== 0) return "next";
+  const bodyEnd = at + count - scan.run;
+  return { lead: scan.lead, bodyStart: scan.bodyStart, bodyEnd, trail: scan.text.slice(bodyEnd, at + count + 1), end: at + count + 1 };
+}
+
+function isEscapedNewline(scan: QuotedScan, count: number, next: string | undefined): boolean {
+  return count > 0 && scan.newlineRun > 0 && (next === "n" || next === "r") && count % (scan.run + 1) === scan.newlineRun;
+}
+
+function quotedStep(scan: QuotedScan, at: number, count: number): QuotedStep {
+  const next = scan.text[at + count];
+  if (scan.quote === "'" && next === '"' && (scan.anyDouble || count === 0)) return "stop";
+  if (next === scan.quote) return closingQuote(scan, at, count);
+  if (isEscapedNewline(scan, count, next)) {
+    const bodyEnd = at + count - scan.newlineRun;
+    return { lead: scan.lead, bodyStart: scan.bodyStart, bodyEnd, trail: "", end: bodyEnd };
+  }
+  if (count > 0 && (next === undefined || isLineBreak(next))) return "stop";
+  return "next";
+}
+
 function scanQuoted(text: string, start: number, run: number, quote: string, anyDouble: boolean): ValueSpan | null {
   const bodyStart = start + run + 1;
-  const lead = text.slice(start, bodyStart);
   const newlineRun = run > 0 && run % 2 === 1 ? (run + 1) / 2 : -1;
+  const scan: QuotedScan = { text, lead: text.slice(start, bodyStart), bodyStart, run, quote, anyDouble, newlineRun };
   let at = bodyStart;
   while (at < text.length) {
     const char = text[at];
-    if (char === "\r" || char === "\n") break;
+    if (isLineBreak(char)) break;
     const count = char === "\\" ? backslashRun(text, at) : 0;
-    const next = text[at + count];
-    if (quote === "'" && next === '"' && (anyDouble || count === 0)) break;
-    if (next === quote) {
-      if (count < run) break;
-      if ((count - run) % (2 * (run + 1)) === 0) {
-        const bodyEnd = at + count - run;
-        return { lead, bodyStart, bodyEnd, trail: text.slice(bodyEnd, at + count + 1), end: at + count + 1 };
-      }
-    } else if (count > 0 && newlineRun > 0 && (next === "n" || next === "r") && count % (run + 1) === newlineRun) {
-      return { lead, bodyStart, bodyEnd: at + count - newlineRun, trail: "", end: at + count - newlineRun };
-    } else if (count > 0 && (next === undefined || next === "\r" || next === "\n")) {
-      break;
-    }
+    const step = quotedStep(scan, at, count);
+    if (step === "stop") break;
+    if (step !== "next") return step;
     at += count + 1;
   }
   if (quote === "'" && !anyDouble) return null;
-  return { lead, bodyStart, bodyEnd: at, trail: "", end: at };
+  return { lead: scan.lead, bodyStart, bodyEnd: at, trail: "", end: at };
 }
 
 function scanUnquoted(text: string, start: number): ValueSpan {
