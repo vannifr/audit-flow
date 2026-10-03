@@ -174,13 +174,13 @@ each marked `superseded by FR-xxx` in the commit body. No adapters with the old 
 
 ## Phase 9: Polish and cross-cutting
 
-- [ ] T042 [P] Migrate remaining `execAsync` calls, batch 1 of 3 (performance and accessibility activities), to `runTool` in `src/activities/index.ts`
+- [ ] T042 (deferred to roadmap item 012, legacy path is off the audit workflow) [P] Migrate remaining `execAsync` calls, batch 1 of 3 (performance and accessibility activities), to `runTool` in `src/activities/index.ts`
   - Tier A, with tests staying green. Supersedes tests per commit.
-- [ ] T043 [P] Migrate remaining `execAsync` calls, batch 2 of 3 (reliability, observability, CI/CD checks)
+- [ ] T043 (deferred to roadmap item 012, legacy path is off the audit workflow) [P] Migrate remaining `execAsync` calls, batch 2 of 3 (reliability, observability, CI/CD checks)
   - Tier A.
-- [ ] T044 [P] Migrate remaining `execAsync` calls, batch 3 of 3 (code quality, documentation, privacy, blind spots)
+- [ ] T044 (deferred to roadmap item 012, legacy path is off the audit workflow) [P] Migrate remaining `execAsync` calls, batch 3 of 3 (code quality, documentation, privacy, blind spots)
   - Tier A.
-- [ ] T045 Forbid `child_process` `exec` and `execSync` with an ESLint restricted-imports rule and prove it fails on a temporary violation in `.eslintrc.json`
+- [x] T045 Forbid new `exec`, `execSync` and `shell: true` outside the process runner with an architecture ratchet test (`tests/unit/architecture-exec-ratchet.test.ts`, legacy baseline 23 can only decrease; three mutations proven)
   - Tier A. Consumes: T042, T043, T044.
 - [x] T046 Run the structured security review after T013 and after T022 (payloads: workflowId `x;id>...;#`, hostile `.npmrc`, symlink in bundle, key in evidence root) and record findings in `docs/review-004-security.md`
   - Tier C (independent Opus pass).
@@ -193,7 +193,7 @@ each marked `superseded by FR-xxx` in the commit body. No adapters with the old 
 - [x] T050 Create GitHub milestones L1 to L4, labels per level and one issue per roadmap item with a link to its `specs/NNN` folder, using `/iikit-08-taskstoissues` Done 2026-10-03: milestones L1 to L4, labels level-1 to level-4 and backlog, 31 issues (#1 closed as delivered). A GitHub Project board was not created (the gh token lacks the project scope); filter the issues by milestone and label as the board until then.
   - Tier A. Outward-facing; approved by the user on 2026-10-03.
 
-- [ ] T051 Hold a retrospective on the agentic way of working used in this implementation: which approach helped, which did not, and the opportunity to define and distil an own method or system from it (playbook, skills, templates); inputs are `docs/retro/004-agentic-notes.md` (kept running during the work), the numbers per slice and the commit history; output is `docs/retro/004-agentic-retro.md` and a proposal for a distilled approach
+- [x] T051 Hold a retrospective on the agentic way of working used in this implementation: which approach helped, which did not, and the opportunity to define and distil an own method or system from it (playbook, skills, templates); inputs are `docs/retro/004-agentic-notes.md` (kept running during the work), the numbers per slice and the commit history; output is `docs/retro/004-agentic-retro.md` and a proposal for a distilled approach
   - Tier B for the write-up; the conclusions are decided with the product owner. Files: `docs/retro/004-agentic-notes.md`, `docs/retro/004-agentic-retro.md`. Runs after the last story of the slice, before the next feature starts.
 ---
 

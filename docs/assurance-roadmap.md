@@ -38,7 +38,7 @@ Elk item wordt een IIKit-feature wanneer het aan de beurt is. `Bron` verwijst na
 
 | # | Item | Niveau | Bron | Afhankelijk van | Status |
 |---|------|--------|------|-----------------|--------|
-| 004 | Betrouwbare scankern (status, evidence, redactie, manifest, handtekening lokale sleutel) | 1 | #4, #5, #6, #7, #10, #16, #22, #1, #2 | n.v.t. | v0.2.0 (2026-10-03): zes stories, 45 BDD-scenario's, demo-gate groen; open: T042 tot T045, T046, T050, T051 |
+| 004 | Betrouwbare scankern (status, evidence, redactie, manifest, handtekening lokale sleutel) | 1 | #4, #5, #6, #7, #10, #16, #22, #1, #2 | n.v.t. | v0.2.0 (2026-10-03): zes stories, 45 BDD-scenario's, demo-gate groen; T042 tot T044 uitgesteld naar 012, T045 als ratchet-test |
 | 005 | Eigen Semgrep-regelset met gemeten recall (vervangt vaste packs) | 2 | beslissing 004-R6 | 004 | niet gestart |
 | 006 | Beveiligde uitvoering: sandbox, scannerconfig geforceerd, groottegrens werkmap | 2 | #1, #6, #16 | 004 | niet gestart |
 | 007 | Herstelbaarheid: heartbeats, korte timeouts, retrybeleid, worker-kill-test | 2 | #8, #17 | 004 | niet gestart |
@@ -46,7 +46,7 @@ Elk item wordt een IIKit-feature wanneer het aan de beurt is. `Bron` verwijst na
 | 009 | Testbetrouwbaarheid: hermetische tests, BDD actief in CI, `.spec.md`-formaat en assertion-hashes | 2 | #11, #12, #14, #26, #28 | n.v.t. | niet gestart |
 | 010 | Bewijsopslag: WORM, bewaarbeleid, back-up | 2 | 004 FR-011 (deels) | 004 | niet gestart |
 | 011 | Goedkeuring: reject-signaal, vastgelegde besluiten, `skipApproval` zichtbaar | 2 | #15 | 004 | niet gestart |
-| 012 | Domeinen aansluiten (privacy, documentatie, CI, reliability, SQL-injectie D08) met recall per domein | 2 | #9, D08, D12–D17 | 005 | niet gestart |
+| 012 | Domeinen aansluiten (privacy, documentatie, CI, reliability, SQL-injectie D08) met recall per domein; migreer de 23 legacy `execAsync`-aanroepen naar `runTool` (004 T042 tot T044) en verwijder `npx eslint` in de doelrepo (`checkCodeQuality`) | 2 | #9, D08, D12–D17 | 005 | niet gestart |
 | 013 | Evidence Attestation: externe sleutelbewaring, RFC 3161, verankering, scanner-attestatie, rolscheiding | 3 | 004 R19, review §7 | 004, 010 | niet gestart |
 | 014 | Reproduceerbare tweede run en vergelijking | 3 | review §7 | 013 | niet gestart |
 | 015 | Compliance-mapping echt (ISO 27001, SOC 2, ASVS) | 4 | #19 | 012 | niet gestart |
