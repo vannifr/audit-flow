@@ -39,7 +39,7 @@ each marked `superseded by FR-xxx` in the commit body. No adapters with the old 
 
 **Purpose**: structure and test harness; nothing here changes behavior.
 
-- [ ] T001 Create module folders `src/scan/`, `src/evidence/`, `src/cli/`, `tests/unit/scan/`, `tests/unit/evidence/`, `tests/contract/` (empty `index.ts` or `.gitkeep`)
+- [x] T001 Create module folders `src/scan/`, `src/evidence/`, `src/cli/`, `tests/unit/scan/`, `tests/unit/evidence/`, `tests/contract/` (empty `index.ts` or `.gitkeep`)
   - Tier A (mechanical, no judgment). Files: those folders. Produces: layout from plan.md "Project Structure".
 - [ ] T002 [P] Record tool fixtures in `tests/fixtures/tools/` from real runs on the demo and on a clean app: npm audit (vulnerable, ENOLOCK), gitleaks (clean, leak with exit 42, error), semgrep (clean, results, crash exit 2)
   - Tier B (needs judgment which output is representative). Files: `tests/fixtures/tools/*.json`. Produces: input for policy unit tests.
