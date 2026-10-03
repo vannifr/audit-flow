@@ -91,7 +91,7 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-function ctx(runner: ProcessRunner): ScanContext {
+function ctx(runner: ProcessRunner, overrides: Partial<ScanContext> = {}): ScanContext {
   return {
     run: { runId: 'run1', workDir, repoDir },
     source: { repoDir, revision: 'abc123' },
@@ -100,6 +100,7 @@ function ctx(runner: ProcessRunner): ScanContext {
     deps: { runner, store, clock: () => T0, frameworkVersion: '0.0.0-test' },
     workerEnv: {},
     configDir: '/unused',
+    ...overrides,
   };
 }
 
@@ -404,5 +405,19 @@ describe('runNpmAuditScan results', () => {
     expect(result.findings).toHaveLength(2000);
     expect(result.status).toMatchObject({ status: 'partial', cause: 'findings-truncated', findingCount: 2000 });
     expect(store.records[0].findingIds).toHaveLength(2000);
+  });
+});
+
+describe('runNpmAuditScan override attempts (FR-014)', () => {
+  it('puts the dependency steering attempts in its evidence record', async () => {
+    await withManifest('package-lock.json', '{"lock":1}');
+    const attempts = [
+      { kind: 'project-config' as const, path: '.npmrc', detail: 'npm configuration, kept', sha256: 'c'.repeat(64), neutralizedBy: 'isolated-working-dir' as const },
+      { kind: 'control-file' as const, path: '.gitleaksignore', detail: 'gitleaks ignore list, removed', neutralizedBy: 'removed-from-working-copy' as const },
+      { kind: 'project-config' as const, path: '.snyk', detail: 'snyk policy, removed', neutralizedBy: 'removed-from-working-copy' as const },
+    ];
+    const f = fakeRunner(fromFixture(await fixture('npm-audit-clean.json')));
+    await runNpmAuditScan(ctx(f.runner, { overrideAttempts: attempts }));
+    expect(store.records[0].overrideAttempts).toEqual([attempts[0], attempts[2]]);
   });
 });

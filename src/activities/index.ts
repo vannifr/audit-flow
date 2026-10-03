@@ -26,6 +26,8 @@ import { renderOutcomeBlock } from '../report/outcome-block';
 import type { ReportSignature } from '../report/outcome-block';
 import { walkSourceFiles, readSourceFile } from '../scan/safe-walk';
 import { validateRepoUrl } from '../scan/repo-url';
+import { sanitizeOverrideAttempts, steeringCounts } from '../scan/source-probe';
+import type { OverrideAttempt } from '../evidence/types';
 import { createScanActivities } from '../scan/activities';
 import type { ScanActivities, ScanActivity, SealEvidenceActivityInput, SealEvidenceActivityResult, SignEvidenceActivityInput, SignEvidenceResult } from '../scan/activities';
 import type { AuditOutcome, NotPerformed, ScannerStatusEntry } from '../scan/status';
@@ -439,6 +441,7 @@ export async function generateReport(input: {
   revision?: string | null;
   evidence?: { bundlePath: string; rootHash: string };
   signature?: ReportSignature;
+  overrideAttempts?: OverrideAttempt[];
 }): Promise<{ reportPath: string; evidencePath: string }> {
   const baseDir = input.outputDir || path.join('/tmp', `audit-${input.workflowId}`);
   const reportPath = path.join(baseDir, 'audit-report.md');
@@ -493,6 +496,7 @@ interface ReportInput {
   revision?: string | null;
   evidence?: { bundlePath: string; rootHash: string };
   signature?: ReportSignature;
+  overrideAttempts?: OverrideAttempt[];
 }
 
 function productName(): string {
@@ -526,6 +530,7 @@ function generateMarkdownReport(input: ReportInput): string {
     revision: input.revision,
     evidence: input.evidence,
     signature: input.signature,
+    steering: steeringCounts(sanitizeOverrideAttempts(input.overrideAttempts)),
     findingCount: input.findings.length,
   });
 
@@ -2685,7 +2690,8 @@ export async function fetchSource(run: AuditRun, repoUrl: string): Promise<Fetch
       frameworkVersion: frameworkVersion(),
       attempt,
     });
-    logger.info({ runId: run.runId, revision: source.revision }, 'Source fetched');
+    const steering = steeringCounts(source.overrideAttempts);
+    logger.info({ runId: run.runId, revision: source.revision, controlFiles: steering.controlFiles, inlineMarkers: steering.inlineMarkers }, 'Source fetched');
     return source;
   } catch (error) {
     logger.warn({ runId: run.runId, error: error instanceof Error ? error.message : String(error) }, 'Source fetch failed');

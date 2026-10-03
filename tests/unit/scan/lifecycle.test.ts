@@ -59,7 +59,10 @@ function fake(cloneResult: ProcessOutcome = outcome(), revision = REV): Fake {
   const runner: ProcessRunner = async (req) => {
     requests.push(req);
     if (req.args.includes('--version')) return outcome({ stdout: Buffer.from('git version 2.43.0\n') });
-    if (req.args.includes('clone')) return cloneResult;
+    if (req.args.includes('clone')) {
+      if (cloneResult.exitCode === 0) await mkdir(req.args[req.args.length - 1], { recursive: true });
+      return cloneResult;
+    }
     if (req.args.includes('rev-parse')) return outcome({ stdout: Buffer.from(`${revision}\n`) });
     return outcome();
   };
@@ -123,6 +126,92 @@ describe('audit run lifecycle', () => {
   describe('fetchSource', () => {
     const run: AuditRun = { runId: 'run-abc', workDir: '/tmp/tessera-run-abc', repoDir: '/tmp/tessera-run-abc/repo' };
     const url = 'https://github.com/owner/repo';
+
+    afterEach(async () => {
+      await rm(run.workDir, { recursive: true, force: true });
+    });
+
+    function hostileClone(files: Record<string, string>): Fake {
+      const f = fake();
+      const inner = f.deps.runner;
+      f.deps.runner = async (req) => {
+        const result = await inner(req);
+        if (req.args.includes('clone')) {
+          const target = req.args[req.args.length - 1];
+          for (const [rel, content] of Object.entries(files)) {
+            await mkdir(join(target, rel, '..'), { recursive: true });
+            await writeFile(join(target, rel), content);
+          }
+        }
+        return result;
+      };
+      return f;
+    }
+
+    it('probes the clone after rev-parse, removes steering files and records a source.probe record (TS-029, FR-014)', async () => {
+      const own = await initAuditRun({ workflowId: 'audit-1', temporalRunId: 'run-probe', tmpRoot });
+      const f = hostileClone({
+        '.gitleaksignore': 'src/a.js:generic-api-key:1\n',
+        'sub/.semgrepignore': 'src/\n',
+        '.npmrc': 'registry=http://127.0.0.1:9/\n',
+        'src/a.js': 'const k = 1; // gitleaks:allow\n',
+      });
+      const result = await fetchSource(own, url, { ...f.deps, tmpRoot });
+      expect(await exists(join(own.repoDir, '.gitleaksignore'))).toBe(false);
+      expect(await exists(join(own.repoDir, 'sub/.semgrepignore'))).toBe(false);
+      expect(await exists(join(own.repoDir, 'src/a.js'))).toBe(true);
+      const records = (f.deps.store as FakeStore).records;
+      expect(records.map((r) => r.stepId)).toEqual(['source.clone', 'source.revision', 'source.probe']);
+      const probe = records[2];
+      expect(probe).toMatchObject({
+        id: 'source.probe.a1',
+        kind: 'source-probe',
+        status: 'completed',
+        source: { repoUrl: url, revision: REV },
+        action: { command: null, args: [], inputs: expect.objectContaining({ controlFiles: '3', inlineMarkers: '1', truncated: 'false' }) },
+      });
+      expect(probe.scanner).toBeUndefined();
+      expect(probe.causeDetail).toContain('3 control files');
+      expect(probe.causeDetail).toContain('1 inline marker');
+      expect(probe.overrideAttempts.map((a) => [a.kind, a.path, a.neutralizedBy])).toEqual([
+        ['control-file', '.gitleaksignore', 'removed-from-working-copy'],
+        ['project-config', '.npmrc', 'isolated-working-dir'],
+        ['control-file', 'sub/.semgrepignore', 'removed-from-working-copy'],
+        ['inline-marker', 'src/a.js', 'framework-flag'],
+      ]);
+      expect(result.overrideAttempts).toEqual(probe.overrideAttempts);
+      expect(result.evidenceRecordIds).toEqual(['source.clone.a1', 'source.revision.a1', 'source.probe.a1']);
+    });
+
+    it('records a clean probe with no attempts for a source without steering files', async () => {
+      const own = await initAuditRun({ workflowId: 'audit-1', temporalRunId: 'run-clean', tmpRoot });
+      const f = hostileClone({ 'src/a.js': 'x\n' });
+      const result = await fetchSource(own, url, { ...f.deps, tmpRoot, attempt: 2 });
+      expect(result.overrideAttempts).toEqual([]);
+      const probe = (f.deps.store as FakeStore).records.find((r) => r.stepId === 'source.probe');
+      expect(probe).toMatchObject({ id: 'source.probe.a2', status: 'completed', overrideAttempts: [] });
+    });
+
+    it('fails closed with a recorded failed probe when the clone dir cannot be probed', async () => {
+      const own = await initAuditRun({ workflowId: 'audit-1', temporalRunId: 'run-noprobe', tmpRoot });
+      const f = fake();
+      const inner = f.deps.runner;
+      f.deps.runner = async (req) => {
+        const result = await inner(req);
+        if (req.args.includes('clone')) {
+          const target = req.args[req.args.length - 1];
+          await rm(target, { recursive: true, force: true });
+          await symlink(tmpRoot, target);
+        }
+        return result;
+      };
+      const error = await fetchSource(own, url, { ...f.deps, tmpRoot }).then(() => undefined, (e: unknown) => e);
+      expect(error).toMatchObject({ kind: 'source-unavailable', retryable: false });
+      expect((error as { evidenceRecordIds: string[] }).evidenceRecordIds).toEqual(['source.clone.a1', 'source.revision.a1', 'source.probe.a1']);
+      const probe = (f.deps.store as FakeStore).records.find((r) => r.stepId === 'source.probe');
+      expect(probe).toMatchObject({ kind: 'source-probe', status: 'failed', result: { exitClass: 'tool-error' } });
+      expect(probe?.causeDetail).toMatch(/source probe/);
+    });
 
     it('clones shallow with the url after -- and returns the 40-hex revision (TS-014)', async () => {
       const { deps, requests } = fake();

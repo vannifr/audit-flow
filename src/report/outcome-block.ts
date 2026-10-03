@@ -14,6 +14,7 @@ export interface OutcomeBlockInput {
   revision?: string | null;
   evidence?: { bundlePath: string; rootHash: string };
   signature?: ReportSignature;
+  steering?: { controlFiles: number; inlineMarkers: number };
   findingCount: number;
 }
 
@@ -64,7 +65,16 @@ function signatureLines(signature: ReportSignature): string[] {
   return [line, 'Assurance level: 0'];
 }
 
-function evidenceLines(evidence: { bundlePath: string; rootHash: string }, signature: ReportSignature | undefined): string[] {
+function steeringLines(steering: OutcomeBlockInput['steering']): string[] {
+  if (steering === undefined || steering.controlFiles + steering.inlineMarkers <= 0) return [];
+  return [`Scanner steering files neutralized: ${steering.controlFiles} control files, ${steering.inlineMarkers} inline markers`];
+}
+
+function evidenceLines(
+  evidence: { bundlePath: string; rootHash: string },
+  signature: ReportSignature | undefined,
+  steering: OutcomeBlockInput['steering'],
+): string[] {
   const bundle = cell(evidence.bundlePath);
   const root = cell(evidence.rootHash);
   const signed = validSignature(signature);
@@ -75,6 +85,7 @@ function evidenceLines(evidence: { bundlePath: string; rootHash: string }, signa
     'Without Tessera, `sha256sum -c SHA256SUMS` in the bundle folder detects only changed or missing files; added files, the hash chain and the root hash need the verify command.',
     signed ? 'Integrity: hashes and a signed manifest' : 'Integrity: hashes only; the manifest is not signed',
     ...(signature === undefined ? [] : signatureLines(signature)),
+    ...steeringLines(steering),
     '',
   ];
 }
@@ -112,7 +123,7 @@ export function renderOutcomeBlock(input: OutcomeBlockInput): string {
     lines.push(`Source revision: ${cell(input.revision)}`, '');
   }
 
-  if (input.evidence !== undefined) lines.push(...evidenceLines(input.evidence, input.signature));
+  if (input.evidence !== undefined) lines.push(...evidenceLines(input.evidence, input.signature, input.steering));
 
   return `${lines.join('\n')}\n`;
 }

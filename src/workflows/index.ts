@@ -319,6 +319,7 @@ export async function applicationAudit(input: AuditInput): Promise<AuditResult> 
       revision: source.revision,
       evidence: { bundlePath: evidence.bundlePath, rootHash: evidence.rootHash },
       signature: signatureSummary,
+      ...(source.overrideAttempts === undefined ? {} : { overrideAttempts: source.overrideAttempts }),
     });
 
     state.currentPhase = 'completed';

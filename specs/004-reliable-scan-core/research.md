@@ -219,3 +219,11 @@ Decided during implementation: a package without a `license` field in the lockfi
 - **Permissions**: the bundle folder is 0500 and `manifest.json` 0400 after sealing; `records/` and `artifacts/` stay 0700 because test teardown needs to remove them. Files in them are 0400. Verification reports any extra file. This is weaker than R9; the storage-level fix belongs to roadmap item 010.
 - **Seal on retry**: sealing an already sealed bundle verifies and returns the existing result (idempotent), it never rewrites the manifest.
 
+## R5 addendum (2026-10-03): neutralize by renaming, names match case-insensitively
+
+- **Rename, not delete.** Steering files found in the audited source (`.gitleaks.toml`, `gitleaks.toml`, `.gitleaksignore`, `.semgrepignore`, `.semgrep.yml`, `.semgrep.yaml`, `.semgrep/`, `.npmrc`, `.nsprc`, `.snyk`, `.yarnrc`, `.yarnrc.yml`) are renamed in the private working copy to `<name>.tessera-neutralized` instead of being removed. Reason: deleting would also hide their content from gitleaks, so a secret hidden inside a `.gitleaksignore` would never be found. A contract test with the real gitleaks proves the rename catches it. The evidence record keeps `neutralizedBy: removed-from-working-copy` and names the new file in `detail`.
+- **Names match case-insensitively** (case-insensitive filesystems). `.npmrc` and `.yarnrc*` are hashed and recorded as `isolated-working-dir` (npm audit already runs in an isolated directory).
+- **Proof that steering works without the probe**: the contract tests first show that a hostile `.gitleaksignore` and `.semgrepignore` suppress the finding when the probe is switched off, and that it is reported again with the probe.
+- **Known limit**: with the source's own `.semgrepignore` neutralized, semgrep falls back to its built-in default ignore list, which skips `tests/` directories. Code under `tests/` is therefore not scanned by semgrep. That is ruleset policy (R6), not steering by the source, but it is a recall gap to decide on in the own-ruleset feature (roadmap 005).
+- **Fail closed**: if the probe itself fails, no scan runs on an unprobed source; the fetch stops with a non-retryable failure and a failed record.
+

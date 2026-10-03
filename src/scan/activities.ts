@@ -10,6 +10,7 @@ import { verifyEvidenceBundle } from '../evidence/verify';
 import type { EvidenceRef, EvidenceStore } from '../evidence/types';
 import type { AuditRun, FetchedSource } from './lifecycle';
 import { validateRepoUrl } from './repo-url';
+import { sanitizeOverrideAttempts } from './source-probe';
 import type { ScanContext, ScanStep, ScanStepResult } from './scan-types';
 import type { ScannerId, ScannerStatusEntry } from './status';
 import type { ProcessRunner } from './tool-types';
@@ -110,7 +111,8 @@ function trustedRun(run: AuditRun, source: FetchedSource, tmpRoot: string): { ru
     throw invalidRun('run and source paths do not match <tmp>/tessera-<runId>/repo');
   }
   if (typeof source.revision !== 'string' || !REVISION.test(source.revision)) throw invalidRun('invalid source revision');
-  return { run: { runId: run.runId, workDir, repoDir }, source: { repoDir, revision: source.revision } };
+  const overrideAttempts = sanitizeOverrideAttempts(source.overrideAttempts);
+  return { run: { runId: run.runId, workDir, repoDir }, source: { repoDir, revision: source.revision, overrideAttempts } };
 }
 
 function evidenceRootFor(label: string, deps: ScanActivityDeps, run: AuditRun): string {
@@ -169,6 +171,7 @@ function scanActivity(scanner: ScannerId, step: ScanStep, deps: ScanActivityDeps
       deps: { runner: deps.runner, store, clock: deps.clock, frameworkVersion: deps.frameworkVersion },
       workerEnv: deps.workerEnv,
       configDir: deps.configDir,
+      overrideAttempts: trusted.source.overrideAttempts ?? [],
     };
     let result: ScanStepResult;
     try {

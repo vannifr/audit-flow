@@ -3,8 +3,12 @@ import type { Stats } from 'node:fs';
 import { lstat, mkdir, open, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { redactSecrets } from '../evidence/redact';
+import type { EvidenceRecord, OverrideAttempt } from '../evidence/types';
 import { validateRepoUrl } from './repo-url';
 import { runTool } from './run-tool';
+import { probeSource, replaceControlChars } from './source-probe';
+import type { ProbeOptions, ProbeResult } from './source-probe';
 import type { Classification, ParseResult, ProcessOutcome, RunToolDeps, ToolPolicy } from './tool-types';
 
 export interface InitAuditRunInput {
@@ -30,11 +34,18 @@ export interface FetchedSource {
   repoDir: string;
   revision: string;
   evidenceRecordIds?: string[];
+  overrideAttempts?: OverrideAttempt[];
 }
 
 export interface FetchSourceDeps extends RunToolDeps {
   tmpRoot?: string;
   attempt?: number;
+  probeOptions?: ProbeOptions;
+}
+
+export interface SourceProbeOutcome {
+  recordId: string;
+  attempts: OverrideAttempt[];
 }
 
 export type LifecycleInputCode = 'invalid-run' | 'invalid-repo-url';
@@ -71,6 +82,7 @@ const DIR_MODE = 0o700;
 const WORK_PREFIX = 'tessera-';
 const CLONE_TIMEOUT_MS = 300_000;
 const REV_PARSE_TIMEOUT_MS = 30_000;
+const SOURCE_PROBE_STEP = 'source.probe';
 
 function isErrno(err: unknown, code: string): boolean {
   return typeof err === 'object' && err !== null && (err as NodeJS.ErrnoException).code === code;
@@ -233,7 +245,101 @@ export async function fetchSource(input: AuditRun, repoUrl: string, deps: FetchS
   if (revParse.classification.status !== 'completed' || typeof revision !== 'string' || !REVISION.test(revision)) {
     throw new SourceFetchFailure('source-unavailable', false, 'could not determine a valid source revision', [clone.record.id, revParse.record.id]);
   }
-  return { repoDir: run.repoDir, revision, evidenceRecordIds: [clone.record.id, revParse.record.id] };
+  const fetchedIds = [clone.record.id, revParse.record.id];
+  const probe = await probeWorkingCopy(run, repoUrl, revision, deps, fetchedIds);
+  return { repoDir: run.repoDir, revision, evidenceRecordIds: [...fetchedIds, probe.recordId], overrideAttempts: probe.attempts };
+}
+
+function probeDetail(message: string, run: AuditRun): string {
+  const local = replaceControlChars(message.split(run.workDir).join('<WORK>'), ' ');
+  return redactSecrets(local).text.slice(0, 500);
+}
+
+function probeRecord(
+  run: AuditRun,
+  repoUrl: string,
+  revision: string,
+  deps: FetchSourceDeps,
+  startedAt: Date,
+  outcome: { result: ProbeResult } | { error: string },
+): EvidenceRecord {
+  const endedAt = deps.clock();
+  const attempt = deps.attempt ?? 1;
+  const base = {
+    schema: 'tessera.evidence/v1' as const,
+    id: `${SOURCE_PROBE_STEP}.a${attempt}`,
+    runId: run.runId,
+    stepId: SOURCE_PROBE_STEP,
+    attempt,
+    kind: 'source-probe' as const,
+    tool: { name: 'tessera-source-probe', version: deps.frameworkVersion },
+    source: { repoUrl, revision },
+    startedAt: startedAt.toISOString(),
+    endedAt: endedAt.toISOString(),
+    durationMs: Math.max(0, endedAt.getTime() - startedAt.getTime()),
+    output: null,
+    stderr: null,
+    findingIds: [],
+    recordedBy: { framework: 'tessera' as const, version: deps.frameworkVersion },
+  };
+  const action = (inputs: Record<string, string>) => ({ command: null, args: [], cwd: '<WORK>', envOverrides: {}, envPassthrough: [], inputs });
+  if ('error' in outcome) {
+    return {
+      ...base,
+      action: action({}),
+      result: { exitCode: null, signal: null, exitClass: 'tool-error', timedOut: false },
+      status: 'failed',
+      cause: 'tool-error',
+      causeDetail: outcome.error,
+      overrideAttempts: [],
+    };
+  }
+  const r = outcome.result;
+  const summary = `${r.controlFiles} control files neutralized, ${r.inlineMarkers} inline markers counted`;
+  return {
+    ...base,
+    action: action({
+      controlFiles: String(r.controlFiles),
+      inlineMarkers: String(r.inlineMarkers),
+      entriesVisited: String(r.entriesVisited),
+      markerFilesScanned: String(r.markerFilesScanned),
+      truncated: String(r.truncated),
+    }),
+    result: { exitCode: null, signal: null, exitClass: r.truncated ? 'output-truncated' : 'success', timedOut: false },
+    status: r.truncated ? 'partial' : 'completed',
+    ...(r.truncated ? { cause: 'output-truncated' as const } : {}),
+    causeDetail: r.truncation === undefined ? summary : `${summary}; probe stopped early: ${r.truncation}`,
+    overrideAttempts: r.attempts.map((a) => ({ ...a })),
+  };
+}
+
+export async function probeWorkingCopy(
+  input: AuditRun,
+  repoUrl: string,
+  revision: string,
+  deps: FetchSourceDeps,
+  priorRecordIds: string[] = [],
+): Promise<SourceProbeOutcome> {
+  const run = trustedRun(input, deps.tmpRoot ?? os.tmpdir());
+  const startedAt = deps.clock();
+  let result: ProbeResult;
+  try {
+    result = await probeSource(run.repoDir, deps.probeOptions);
+  } catch (error) {
+    const raw = error instanceof Error ? error.message : String(error);
+    const detail = probeDetail(raw.startsWith('source probe:') ? raw : `source probe: ${raw}`, run);
+    let ids = [...priorRecordIds];
+    try {
+      const ref = await deps.store.writeRecord(probeRecord(run, repoUrl, revision, deps, startedAt, { error: detail }));
+      ids = [...ids, ref.recordId];
+    } catch {
+      ids = [...priorRecordIds];
+    }
+    throw new SourceFetchFailure('source-unavailable', false, `source probe failed, no scan may run on an unprobed source: ${detail}`, ids);
+  }
+  const record = probeRecord(run, repoUrl, revision, deps, startedAt, { result });
+  const ref = await deps.store.writeRecord(record);
+  return { recordId: ref.recordId, attempts: record.overrideAttempts };
 }
 
 export async function cleanupRun(run: AuditRun, tmpRoot: string): Promise<void> {

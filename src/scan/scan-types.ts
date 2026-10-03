@@ -1,5 +1,5 @@
 import type { Finding } from '../types';
-import type { EvidenceRef, FindingEvidenceExtension } from '../evidence/types';
+import type { EvidenceRef, FindingEvidenceExtension, OverrideAttempt } from '../evidence/types';
 import type { AuditRun, FetchedSource } from './lifecycle';
 import type { ScannerId, ScannerStatusEntry } from './status';
 import type { RunToolDeps } from './tool-types';
@@ -14,6 +14,7 @@ export interface ScanContext {
   deps: RunToolDeps;
   workerEnv: Readonly<Record<string, string | undefined>>;
   configDir: string;
+  overrideAttempts?: OverrideAttempt[];
 }
 
 export interface ScanStepResult {

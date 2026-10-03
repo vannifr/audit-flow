@@ -4,6 +4,7 @@ import { sha256Hex } from '../../evidence/hash';
 import type { EvidenceRef } from '../../evidence/types';
 import type { Evidence } from '../../types';
 import { runTool } from '../run-tool';
+import { overrideAttemptsFor } from '../source-probe';
 import { MAX_FINDINGS_PER_STEP } from '../scan-types';
 import type { ScanContext, ScanFinding, ScanStep, ScanStepResult } from '../scan-types';
 import type { ScannerStatusEntry, ScannerStatusValue, StatusCause } from '../status';
@@ -294,6 +295,7 @@ export const runNpmAuditScan: ScanStep = async (ctx) => {
       timeoutMs: TIMEOUT_MS,
       outputFrom: 'stdout',
       inputs: { lockfileSha256 },
+      overrideAttempts: overrideAttemptsFor('npm-audit', ctx.overrideAttempts),
       pathTokens: { [ctx.run.workDir]: WORK_TOKEN },
     },
     npmAuditPolicy,

@@ -320,3 +320,30 @@ describe('report product name', () => {
     expect((await render({})).split('\n')).toContain('# Audit Report (Tessera)');
   });
 });
+
+describe('report scanner steering line (FR-014, R5)', () => {
+  const ROOT = 'fedcba9876543210'.repeat(4);
+  const BUNDLE = '/var/lib/tessera/evidence/run-2';
+  const attempts = [
+    { kind: 'control-file', path: '.gitleaksignore', detail: 'gitleaks ignore list, removed', neutralizedBy: 'removed-from-working-copy' },
+    { kind: 'project-config', path: '.npmrc', detail: 'npm configuration, kept', neutralizedBy: 'isolated-working-dir' },
+    { kind: 'inline-marker', path: 'src/a.js', detail: 'inline marker "gitleaks:allow" x2', neutralizedBy: 'framework-flag' },
+    { kind: 'inline-marker', path: 'src/b.js', detail: 'inline marker "nosemgrep" x3', neutralizedBy: 'framework-flag' },
+  ];
+
+  it('states the neutralized control files and inline markers in the evidence block', async () => {
+    const report = await render({ outcome: 'complete', notPerformed: [], scanners: ALL_COMPLETED, evidence: { bundlePath: BUNDLE, rootHash: ROOT }, overrideAttempts: attempts });
+    const lines = report.split('\n');
+    const at = lines.indexOf('Scanner steering files neutralized: 2 control files, 5 inline markers');
+    expect(at).toBeGreaterThan(lines.indexOf(`Evidence root hash: ${ROOT}`));
+    expect(at).toBeLessThan(lines.findIndex((l) => l.startsWith('# Audit Report')));
+    expect(report).not.toContain('.gitleaksignore');
+  });
+
+  it('omits the line when nothing was neutralized or the attempts are malformed', async () => {
+    for (const overrideAttempts of [[], undefined, [{ kind: 'bogus' }], 'x']) {
+      const report = await render({ outcome: 'complete', notPerformed: [], scanners: ALL_COMPLETED, evidence: { bundlePath: BUNDLE, rootHash: ROOT }, overrideAttempts });
+      expect(report).not.toContain('Scanner steering files');
+    }
+  });
+});

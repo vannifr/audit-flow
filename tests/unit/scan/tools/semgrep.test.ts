@@ -79,7 +79,7 @@ function fromFixture(f: Fixture): ProcessOutcome {
   return outcome({ exitCode: f.exitCode, stdout: Buffer.from(f.stdout), stderr: Buffer.from(f.stderr) });
 }
 
-function setup(main: ProcessOutcome) {
+function setup(main: ProcessOutcome, overrides: Partial<ScanContext> = {}) {
   const requests: ProcessRequest[] = [];
   const runner: ProcessRunner = async (req) => {
     requests.push(req);
@@ -97,6 +97,7 @@ function setup(main: ProcessOutcome) {
     deps: { runner, store, clock: () => T1, frameworkVersion: '0.0.0-test' },
     workerEnv: {},
     configDir: '/tmp/config',
+    ...overrides,
   };
   return { ctx, store, requests };
 }
@@ -435,5 +436,22 @@ describe('semgrepPolicy', () => {
     const body = JSON.parse(out.bytes.toString('utf8'));
     expect(body.results).toHaveLength(1);
     expect(body.errors).toHaveLength(1);
+  });
+});
+
+describe('runSemgrepScan override attempts (TS-029, TS-030, FR-014)', () => {
+  it('puts the semgrep steering attempts in its evidence record and keeps --disable-nosem on', async () => {
+    const attempts = [
+      { kind: 'control-file' as const, path: '.gitleaksignore', detail: 'gitleaks ignore list, removed', neutralizedBy: 'removed-from-working-copy' as const },
+      { kind: 'control-file' as const, path: 'src/.semgrepignore', detail: 'semgrep ignore list, removed', sha256: 'b'.repeat(64), neutralizedBy: 'removed-from-working-copy' as const },
+      { kind: 'project-config' as const, path: '.semgrep.yml', detail: 'semgrep configuration, removed', neutralizedBy: 'removed-from-working-copy' as const },
+      { kind: 'inline-marker' as const, path: 'src/a.js', detail: 'inline marker "gitleaks:allow" x2', neutralizedBy: 'framework-flag' as const },
+      { kind: 'inline-marker' as const, path: 'src/a.js', detail: 'inline marker "nosemgrep" x1', neutralizedBy: 'framework-flag' as const },
+    ];
+    const { ctx, store, requests } = setup(outcome({ stdout: semgrepJson([]) }), { overrideAttempts: attempts });
+    await runSemgrepScan(ctx);
+    expect(store.records[0].overrideAttempts).toEqual([attempts[1], attempts[2], attempts[4]]);
+    const main = requests.find((r) => r.args.includes('--json'));
+    expect(main?.args).toContain('--disable-nosem');
   });
 });

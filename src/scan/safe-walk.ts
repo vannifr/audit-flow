@@ -69,3 +69,60 @@ export async function readSourceFile(file: string, maxBytes: number = MAX_SOURCE
     return null;
   }
 }
+
+export type TreeEntryType = 'file' | 'directory' | 'symlink' | 'other';
+
+export interface TreeEntry {
+  absolute: string;
+  relative: string;
+  name: string;
+  type: TreeEntryType;
+  depth: number;
+}
+
+export interface TreeWalkOptions {
+  maxDepth: number;
+  maxEntries: number;
+  descend?: (entry: TreeEntry) => boolean;
+}
+
+export interface TreeWalkResult {
+  entries: TreeEntry[];
+  truncated: 'depth' | 'entries' | null;
+}
+
+function entryType(entry: { isSymbolicLink(): boolean; isDirectory(): boolean; isFile(): boolean }): TreeEntryType {
+  if (entry.isSymbolicLink()) return 'symlink';
+  if (entry.isDirectory()) return 'directory';
+  if (entry.isFile()) return 'file';
+  return 'other';
+}
+
+export async function walkTree(root: string, options: TreeWalkOptions): Promise<TreeWalkResult> {
+  const entries: TreeEntry[] = [];
+  let truncated: TreeWalkResult['truncated'] = null;
+  const queue: { absolute: string; relative: string; depth: number }[] = [{ absolute: root, relative: '', depth: 0 }];
+  for (let index = 0; index < queue.length; index++) {
+    const next = queue[index];
+    const listed = await readdir(next.absolute, { withFileTypes: true });
+    listed.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    for (const dirent of listed) {
+      if (entries.length >= options.maxEntries) return { entries, truncated: 'entries' };
+      const entry: TreeEntry = {
+        absolute: `${next.absolute}/${dirent.name}`,
+        relative: next.relative === '' ? dirent.name : `${next.relative}/${dirent.name}`,
+        name: dirent.name,
+        type: entryType(dirent),
+        depth: next.depth + 1,
+      };
+      entries.push(entry);
+      if (entry.type !== 'directory' || (options.descend !== undefined && !options.descend(entry))) continue;
+      if (entry.depth >= options.maxDepth) {
+        truncated = truncated ?? 'depth';
+        continue;
+      }
+      queue.push({ absolute: entry.absolute, relative: entry.relative, depth: entry.depth });
+    }
+  }
+  return { entries, truncated };
+}

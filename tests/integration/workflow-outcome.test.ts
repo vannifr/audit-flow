@@ -196,6 +196,27 @@ describe('applicationAudit outcome rule (FR-001..FR-004, FR-016)', () => {
     expect(reportInput().revision).toBe(SOURCE.revision);
   });
 
+  it('passes the source probe attempts to every scan and to generateReport (FR-014)', async () => {
+    const overrideAttempts = [
+      { kind: 'control-file' as const, path: '.gitleaksignore', detail: 'gitleaks ignore list, removed', neutralizedBy: 'removed-from-working-copy' as const },
+    ];
+    const probed = { ...SOURCE, overrideAttempts };
+    harness.activities.fetchSource = vi.fn(async () => probed);
+
+    await applicationAudit(INPUT);
+
+    for (const name of ['runGitleaks', 'runSemgrep', 'runNpmAudit', 'runLicenseCheck']) {
+      expect(act(name)).toHaveBeenCalledWith(RUN, probed, INPUT.repoUrl);
+    }
+    expect(reportInput().overrideAttempts).toEqual(overrideAttempts);
+  });
+
+  it('passes no override attempts to generateReport when the source has none', async () => {
+    await applicationAudit(INPUT);
+
+    expect('overrideAttempts' in reportInput()).toBe(false);
+  });
+
   it('counts exit-because-issues-found as findings, not as a failure (TS-004)', async () => {
     const leaks = [finding('LEAK-1', 'gitleaks'), finding('LEAK-2', 'gitleaks')];
     harness.activities.runGitleaks = vi.fn(async () => step('gitleaks', 'completed', { cause: 'issues-found', findings: leaks }));

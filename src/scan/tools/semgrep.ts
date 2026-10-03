@@ -4,6 +4,7 @@ import { MAX_FINDINGS_PER_STEP } from '../scan-types';
 import type { ScanContext, ScanFinding, ScanStep, ScanStepResult } from '../scan-types';
 import type { ScannerStatusEntry } from '../status';
 import { runTool } from '../run-tool';
+import { overrideAttemptsFor } from '../source-probe';
 import type { Classification, ParseResult, ProcessOutcome, Sanitized, ToolInvocation, ToolPolicy } from '../tool-types';
 
 type Json = Record<string, unknown>;
@@ -194,6 +195,7 @@ export const runSemgrepScan: ScanStep = async (ctx: ScanContext): Promise<ScanSt
     timeoutMs: TIMEOUT_MS,
     outputFrom: 'stdout',
     inputs: { configs: PACKS.join(',') },
+    overrideAttempts: overrideAttemptsFor('semgrep', ctx.overrideAttempts),
     pathTokens: { [ctx.run.workDir]: WORK_TOKEN },
   };
   const result = await runTool(invocation, semgrepPolicy, ctx.deps, (parsed) => findingIdsOf(hitsOf(parsed.value)));

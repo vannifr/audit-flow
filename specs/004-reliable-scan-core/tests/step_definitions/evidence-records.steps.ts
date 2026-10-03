@@ -79,7 +79,7 @@ function findingsOf(world: ScanWorld): Finding[] {
 function executedSteps(world: ScanWorld): string[] {
   const steps: string[] = [];
   if (world.runnerCalls.some((r) => r.file === 'git' && r.args.includes('clone'))) steps.push('source.clone');
-  if (world.runnerCalls.some((r) => r.file === 'git' && r.args.includes('rev-parse'))) steps.push('source.revision');
+  if (world.runnerCalls.some((r) => r.file === 'git' && r.args.includes('rev-parse'))) steps.push('source.revision', 'source.probe');
   for (const [activity, step] of Object.entries(STEP_BY_ACTIVITY)) {
     if (world.called(activity)) steps.push(step);
   }
@@ -136,7 +136,7 @@ When('a reviewer lists the evidence', async function (this: ScanWorld) {
 
 Then('every executed step has a record', function (this: ScanWorld) {
   const steps = executedSteps(this);
-  assert.deepEqual(steps, ['source.clone', 'source.revision', 'scan.gitleaks', 'scan.semgrep', 'scan.npm-audit', 'license-check']);
+  assert.deepEqual(steps, ['source.clone', 'source.revision', 'source.probe', 'scan.gitleaks', 'scan.semgrep', 'scan.npm-audit', 'license-check']);
   const listed = ctx(this).recordsListed;
   for (const step of steps) {
     const found = listed.filter((r) => r.record.stepId === step);
@@ -178,7 +178,7 @@ Then('the evidence states the exact source revision that was scanned', async fun
   assert.equal(manifest.source.revision, revision);
   assert.equal(manifest.source.repoUrl, 'https://github.com/acme/app');
   const records = await readRecords(dir);
-  const scanRecords = records.filter((r) => r.record.stepId !== 'source.clone' && r.record.stepId !== 'source.revision');
+  const scanRecords = records.filter((r) => !['source.clone', 'source.revision', 'source.probe'].includes(r.record.stepId));
   assert.equal(scanRecords.length, 4);
   for (const r of scanRecords) assert.equal(r.record.source.revision, revision, `${r.record.id} states another revision`);
   const probe = records.find((r) => r.record.stepId === 'source.revision');
@@ -410,7 +410,7 @@ Then('each evidence set contains only records of its own run', async function (t
     assert.equal(manifest.runId, w.runId);
     assert.equal(manifest.source.revision, w.source.revision);
     const records = await readRecords(dir);
-    assert.equal(records.length, 6);
+    assert.equal(records.length, 7);
     for (const r of records) {
       assert.equal(r.record.runId, w.runId, `${r.entry.path} belongs to another run`);
       if (r.record.stepId !== 'source.clone') assert.ok(r.record.source.revision === w.source.revision || r.record.source.revision === null);
@@ -487,7 +487,7 @@ Then('no step has duplicate evidence', async function (this: ScanWorld) {
   const records = await readRecords(dir);
   const stepIds = records.map((r) => r.record.stepId);
   assert.equal(new Set(stepIds).size, stepIds.length, 'a step has more than one record');
-  assert.equal(stepIds.length, 6);
+  assert.equal(stepIds.length, 7);
   assert.ok(records.every((r) => r.record.attempt === 1));
   assert.equal(new Set(manifest.entries.map((e) => e.path)).size, manifest.entries.length);
   assert.equal(manifest.entries.filter((e) => e.kind === 'artifact').length, 8);

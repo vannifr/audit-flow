@@ -163,9 +163,9 @@ each marked `superseded by FR-xxx` in the commit body. No adapters with the old 
 
 ## Phase 8: User Story 5 - Evidence without exposed secrets (Priority: P3)
 
-- [ ] T039 [US5] Implement `src/scan/source-probe.ts`: detect and record scanner-steering files (`.gitleaks.toml`, `.gitleaksignore`, `.semgrepignore`, `.npmrc`, markers) and neutralize them in the work copy [TS-029, TS-030]
+- [x] T039 [US5] Implement `src/scan/source-probe.ts`: detect and record scanner-steering files (`.gitleaks.toml`, `.gitleaksignore`, `.semgrepignore`, `.npmrc`, markers) and neutralize them in the work copy [TS-029, TS-030]
   - Tier C (trust boundary). Consumes: R5.
-- [ ] T040 [P] [US5] Add contract tests with real tools and hostile fixtures in `tests/contract/` (allow-all gitleaks config, `.semgrepignore` hiding `src/`, hostile `.npmrc`, repo-local `license-checker` marker) [TS-029, TS-030]; run via `npm run test:tools`
+- [x] T040 [P] [US5] Add contract tests with real tools and hostile fixtures in `tests/contract/` (allow-all gitleaks config, `.semgrepignore` hiding `src/`, hostile `.npmrc`, repo-local `license-checker` marker) [TS-029, TS-030]; run via `npm run test:tools`
   - Tier B. Consumes: T004, T039.
 - [ ] T041 [US5] Write step definitions for `secret-redaction.feature` and run them green [TS-027, TS-028, TS-029, TS-030]
   - Tier B.

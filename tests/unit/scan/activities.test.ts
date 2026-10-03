@@ -661,3 +661,26 @@ describe('worker-registered signEvidence', () => {
     }
   });
 });
+
+describe('scan activities forward source probe attempts (TS-029, FR-014)', () => {
+  it('passes validated override attempts from the source into the gitleaks evidence record and drops forged entries', async () => {
+    const valid = { kind: 'control-file', path: '.gitleaksignore', detail: 'gitleaks ignore list, removed', sha256: 'd'.repeat(64), neutralizedBy: 'removed-from-working-copy' };
+    const forged = [
+      { kind: 'control-file', path: '/etc/passwd', detail: 'x', neutralizedBy: 'removed-from-working-copy' },
+      { kind: 'control-file', path: '.gitleaksignore', detail: 'x', neutralizedBy: 'ignored' },
+      'not an attempt',
+    ];
+    const acts = createScanActivities(deps(runnerFor(await fixture('gitleaks-leak.json'))));
+    const withAttempts = { ...source, overrideAttempts: [valid, ...forged] } as unknown as FetchedSource;
+    const result = await acts.runGitleaks(run, withAttempts, REPO_URL);
+    const record = JSON.parse(await readFile(path.join(evidenceRoot, RUN_ID, 'records', `${result.evidence.recordId}.json`), 'utf8'));
+    expect(record.overrideAttempts).toEqual([valid]);
+  });
+
+  it('records no attempts when the source carries none or a non-array value', async () => {
+    const acts = createScanActivities(deps(runnerFor(await fixture('gitleaks-clean.json'))));
+    const result = await acts.runGitleaks(run, { ...source, overrideAttempts: 'x' } as unknown as FetchedSource, REPO_URL);
+    const record = JSON.parse(await readFile(path.join(evidenceRoot, RUN_ID, 'records', `${result.evidence.recordId}.json`), 'utf8'));
+    expect(record.overrideAttempts).toEqual([]);
+  });
+});

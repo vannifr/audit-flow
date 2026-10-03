@@ -3,6 +3,7 @@ import { redactSecrets } from '../../evidence/redact';
 import type { ScanContext, ScanFinding, ScanStep, ScanStepResult } from '../scan-types';
 import { MAX_FINDINGS_PER_STEP } from '../scan-types';
 import { runTool } from '../run-tool';
+import { overrideAttemptsFor } from '../source-probe';
 import type { ScannerStatusEntry } from '../status';
 import type { Classification, ParseResult, ProcessOutcome, Sanitized, ToolPolicy } from '../tool-types';
 
@@ -172,6 +173,7 @@ export const runGitleaksScan: ScanStep = async (ctx): Promise<ScanStepResult> =>
       cwd: ctx.source.repoDir,
       timeoutMs: TIMEOUT_MS,
       outputFrom: 'stdout',
+      overrideAttempts: overrideAttemptsFor('gitleaks', ctx.overrideAttempts),
       pathTokens: { [ctx.source.repoDir]: '<SRC>', [ctx.run.workDir]: '<WORK>' },
     },
     gitleaksPolicy,

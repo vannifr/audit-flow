@@ -444,3 +444,24 @@ describe('gitleaksPolicy', () => {
     expect(out.redactions).toBeGreaterThan(0);
   });
 });
+
+describe('runGitleaksScan override attempts (TS-029, FR-014)', () => {
+  it('puts the gitleaks steering attempts from the source probe in its evidence record and nothing else', async () => {
+    const attempts = [
+      { kind: 'control-file' as const, path: '.gitleaksignore', detail: 'gitleaks ignore list, removed', sha256: 'a'.repeat(64), neutralizedBy: 'removed-from-working-copy' as const },
+      { kind: 'control-file' as const, path: '.semgrepignore', detail: 'semgrep ignore list, removed', neutralizedBy: 'removed-from-working-copy' as const },
+      { kind: 'inline-marker' as const, path: 'src/a.js', detail: 'inline marker "gitleaks:allow" x2', neutralizedBy: 'framework-flag' as const },
+      { kind: 'inline-marker' as const, path: 'src/a.js', detail: 'inline marker "nosemgrep" x1', neutralizedBy: 'framework-flag' as const },
+    ];
+    const { ctx, store, requests } = setup(fromFixture('gitleaks-leak.json'), { overrideAttempts: attempts });
+    await runGitleaksScan(ctx);
+    expect(store.records[0].overrideAttempts).toEqual([attempts[0], attempts[2]]);
+    expect(requests.find((r) => r.args[0] === 'dir')?.args).toContain('--ignore-gitleaks-allow');
+  });
+
+  it('records an empty list when the probe found nothing', async () => {
+    const { ctx, store } = setup(fromFixture('gitleaks-clean.json'));
+    await runGitleaksScan(ctx);
+    expect(store.records[0].overrideAttempts).toEqual([]);
+  });
+});
