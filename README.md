@@ -25,7 +25,8 @@ Commands:
 
 ```bash
 npm run evidence:keygen -- ~/.config/tessera/signing/ed25519.pem    # one-time signing key (kept outside the evidence folder)
-npm run evidence:verify -- <bundle> --expect-root <sha256> --pubkey <key>.pub   # exit 0 only when hashes and signature are valid
+npm run evidence:verify -- <bundle> --expect-root <sha256> --pubkey <key>.pub   # VERIFIED (exit 0) only when hashes and signature are valid for a trusted key
+npm run evidence:verify -- <bundle>   # without --pubkey: HASHES-OK (exit 0) checks hashes only, not who vouches for the evidence; FAILED (exit 1) on any problem
 npm run demo                  # end-to-end run on the demo apps with a release gate
 npm run test:bdd:done         # BDD scenarios of the finished stories
 npm run test:tools            # contract tests with the real tools (needs gitleaks, semgrep, npm)

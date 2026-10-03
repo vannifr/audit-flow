@@ -3,7 +3,7 @@
 ## Commands
 - `npm run verify`: build, test with coverage, lint (must pass before every commit)
 - `npm test`, `npm run lint`, `npm run build`, `npm run test:bdd`
-- `npm run evidence:verify -- <bundle-dir> [--expect-root <sha256>] [--json] [--trace <recordId>]`: verify a sealed evidence bundle (exit 0 ok, 1 issues, 2 usage)
+- `npm run evidence:verify -- <bundle-dir> [--expect-root <sha256>] [--pubkey <file|dir>]... [--json] [--trace <recordId>]`: verify a sealed evidence bundle; first word `VERIFIED` (hashes and a valid signature for a `--pubkey` key), `HASHES-OK` (no `--pubkey`, hashes only) or `FAILED` (exit 0 for the first two, 1 issues, 2 usage)
 - Never run `git commit`, `git push` or any git command that changes history. The orchestrator commits.
 
 ## Code rules

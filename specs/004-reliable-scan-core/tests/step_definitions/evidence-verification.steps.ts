@@ -111,7 +111,8 @@ Then('it reports success', async function (this: ScanWorld) {
   assert.ok(s.report.checkedEntries > 0);
   assert.equal(s.run.code, 0, s.run.stderr);
   const lines = s.run.stdout.split('\n');
-  assert.equal(lines[0], 'VERIFIED');
+  assert.equal(lines[0], 'HASHES-OK');
+  assert.ok(!lines.includes('VERIFIED'));
   assert.ok(lines.includes(`root hash: ${s.rootHash}`));
   assert.ok(lines.includes(`checked entries: ${s.report.checkedEntries}`));
   const withRoot = await cli([s.dir, '--expect-root', s.rootHash]);
@@ -146,7 +147,7 @@ Then('it never reports a failure', async function (this: ScanWorld) {
   assert.equal(s.runs.length, 5);
   for (const run of s.runs) {
     assert.equal(run.code, 0, run.stdout);
-    assert.ok(run.stdout.startsWith('VERIFIED\n'));
+    assert.ok(run.stdout.startsWith('HASHES-OK\n'));
   }
   assert.deepEqual(await fingerprintTree(s.dir), s.before, 'verification changed the evidence');
   assert.equal(JSON.parse(await readFile(path.join(s.dir, 'manifest.json'), 'utf8')).rootHash, s.rootHash);

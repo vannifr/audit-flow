@@ -225,7 +225,7 @@ describe('report evidence section (FR-017, R9)', () => {
     expect(lines.slice(revision + 2, revision + 7)).toEqual([
       `Evidence bundle: ${BUNDLE}`,
       `Evidence root hash: ${ROOT}`,
-      `Verify: npm run evidence:verify -- ${BUNDLE} --expect-root ${ROOT}`,
+      `Verify: npm run evidence:verify -- ${BUNDLE} --expect-root ${ROOT} --pubkey <path to the public key>`,
       'Without Tessera, `sha256sum -c SHA256SUMS` in the bundle folder detects only changed or missing files; added files, the hash chain and the root hash need the verify command.',
       'Integrity: hashes only; the manifest is not signed',
     ]);
@@ -242,7 +242,7 @@ describe('report evidence section (FR-017, R9)', () => {
     const odd = "/tmp/my evidence/it's\nhere";
     const report = await render({ outcome: 'complete', notPerformed: [], scanners: ALL_COMPLETED, evidence: { bundlePath: odd, rootHash: ROOT } });
     expect(report).toContain("Evidence bundle: /tmp/my evidence/it's here");
-    expect(report).toContain(`Verify: npm run evidence:verify -- '/tmp/my evidence/it'\\''s here' --expect-root ${ROOT}`);
+    expect(report).toContain(`Verify: npm run evidence:verify -- '/tmp/my evidence/it'\\''s here' --expect-root ${ROOT} --pubkey <path to the public key>`);
   });
 
   it('omits the evidence section when no bundle was sealed', async () => {

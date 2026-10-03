@@ -217,15 +217,15 @@ describe('evidence signing hardening', () => {
 
     it('verifyEvidenceBundle with trusted keys is ok only for a valid signature, and keeps hashesOk separate', async () => {
       const good = await verifyEvidenceBundle(bundle, { trustedKeys: [`${keyPath}.pub`] });
-      expect(good).toMatchObject({ ok: true, hashesOk: true, signature: { status: 'valid' } });
+      expect(good).toMatchObject({ ok: true, verdict: 'verified', hashesOk: true, signature: { status: 'valid' } });
       const unknown = await verifyEvidenceBundle(bundle, { trustedKeys: [] });
-      expect(unknown).toMatchObject({ ok: false, hashesOk: true, signature: { status: 'unknown-key' } });
+      expect(unknown).toMatchObject({ ok: false, verdict: 'failed', hashesOk: true, signature: { status: 'unknown-key' } });
       const unchecked = await verifyEvidenceBundle(bundle);
-      expect(unchecked).toMatchObject({ ok: true, hashesOk: true });
+      expect(unchecked).toMatchObject({ ok: true, verdict: 'hashes-ok', hashesOk: true });
       await chmod(path.join(bundle, 'signature.json'), 0o600);
       await unlink(path.join(bundle, 'signature.json'));
       const unsigned = await verifyEvidenceBundle(bundle, { trustedKeys: [`${keyPath}.pub`] });
-      expect(unsigned).toMatchObject({ ok: false, hashesOk: true, signature: { status: 'unsigned' } });
+      expect(unsigned).toMatchObject({ ok: false, verdict: 'failed', hashesOk: true, signature: { status: 'unsigned' } });
     });
 
     it('reports a stray partial signature file as extra', async () => {
@@ -233,6 +233,8 @@ describe('evidence signing hardening', () => {
       const report = await verifyEvidenceBundle(bundle);
       expect(report.ok).toBe(false);
       expect(report.issues.map((i) => i.path)).toContain('.signature.json.partial');
+      expect(report.verdict).toBe('failed');
+      expect((await verifyEvidenceBundle(bundle, { trustedKeys: [`${keyPath}.pub`] })).verdict).toBe('failed');
     });
   });
 });

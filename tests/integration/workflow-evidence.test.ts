@@ -198,7 +198,7 @@ describe('applicationAudit with real evidence activities (FR-009, FR-015, FR-017
     expect(revisionAt).toBeGreaterThan(-1);
     expect(lines.indexOf(`Evidence bundle: ${bundle()}`)).toBeGreaterThan(revisionAt);
     expect(lines).toContain(`Evidence root hash: ${rootHash}`);
-    expect(lines).toContain(`Verify: npm run evidence:verify -- ${bundle()} --expect-root ${rootHash}`);
+    expect(lines).toContain(`Verify: npm run evidence:verify -- ${bundle()} --expect-root ${rootHash} --pubkey <path to the public key>`);
     expect(lines).toContain('Integrity: hashes only; the manifest is not signed');
     expect(lines).toContain('Signature: none');
     expect(lines).toContain('Assurance level: 0');

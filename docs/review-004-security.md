@@ -32,3 +32,26 @@ symlinks (`O_NOFOLLOW` used consistently), shell injection (`execFile` with argu
 15 items: 2 valid and fixed, 1 confirming an earlier finding, 5 valid but minor or backlog, 5 not applicable or not exploitable, 1 false.
 Roughly 20% of the items changed the code. A second pass with a stronger model is planned for the highest-stakes files (redaction, `runTool`, signing).
 Not covered: the sandboxing of scanners, Temporal exposure and heartbeats (roadmap items 006 to 008).
+
+---
+
+# Review 2 (after T041): Qwen `qwen3-max-2026-01-23`, read-only, 14 tool calls
+
+Scope: the new code since review 1 (manifest, verify, sign, CLIs, source probe, report block, seal and sign handling).
+
+| # | Reviewer severity | Claim | Verdict | Action |
+|---|-------------------|-------|---------|--------|
+| 1 | critical | `verify` without `--pubkey` can report VERIFIED for an unsigned bundle | **Valid in substance, overstated in severity**: the headline said VERIFIED while the second line said "Signature: not checked". FR-019 forbids the word without a valid signature for a trusted key | Fixed: headline `VERIFIED` only with a valid signature from a trusted key, `HASHES-OK` otherwise, `FAILED` on problems; JSON gets `verdict`; the report's verify command includes `--pubkey` |
+| 2 | high | CLI prints "valid" without `--pubkey` | Not what the code does (it prints "not checked"); subsumed by #1 | none |
+| 3 | high | The workflow falls back to best-effort sealing, so invalid state could be sealed | Not applicable: best-effort sealing exists only on error paths; on the main path a failed seal or `selfVerified` false fails the audit (workflow tests) | none |
+| 4 | medium | Private key is not zeroed in memory | Low value in a garbage-collected runtime; the key never leaves the process | Backlog (hardening) |
+| 5 | medium | `signedAt` is unverified | By design; the report states "not independently attested" | none |
+| 6, 10 | medium, low | Path or control characters in probe messages and errors | Valid, minor: messages are truncated and the paths come from the private work copy | Backlog: one sanitizer for all report and error text |
+| 7 | low | Self-verification uses the same code as external verification | By design; tests use an independent oracle for the hash chain and signature | none |
+| 8 | low | Markdown injection through fields such as the repo URL or finding titles | Valid, minor: they appear below the status block, which the framework writes first, so they cannot forge it | Backlog: escape control characters and newlines in finding text |
+| 9 | low | Key permission check may miss edge cases | `mode & 0o077` is the correct test for group and other access | none |
+
+Areas the reviewer found clean: cryptographic use (domain separation, Ed25519), idempotent seal and sign, source-probe containment, TOCTOU between verify and use.
+
+Signal quality: 10 items, 1 changed the code, 3 backlog, 6 not applicable or by design. This review used far fewer tool calls than review 1
+(14 against 29), which fits its thinner result; for the highest-stakes files a deeper pass is still planned (roadmap items 013 and 020).

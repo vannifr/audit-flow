@@ -192,12 +192,14 @@ describe('runVerifyCli', () => {
     await removeTree(root);
   });
 
-  it('an unmodified bundle exits 0 and starts with VERIFIED, runId, root hash and entry count', async () => {
+  it('an unmodified bundle without --pubkey exits 0 and starts with HASHES-OK, never VERIFIED, then runId, root hash and entry count', async () => {
     const b = await buildSealedBundle(root);
     const r = await run([b.dir]);
     expect(r.code).toBe(0);
     const words = r.out.trim().split(/\s+/);
-    expect(words[0]).toBe('VERIFIED');
+    expect(words[0]).toBe('HASHES-OK');
+    expect(r.out).not.toContain('VERIFIED');
+    expect(r.out.split('\n')[1]).toBe('Signature: not checked (no --pubkey); this is not a verification of who vouches for the evidence');
     expect(r.out).toContain(RUN);
     expect(r.out).toContain(b.rootHash);
     expect(r.out).toMatch(new RegExp(`\\b${b.manifest.entries.length}\\b`));
@@ -254,7 +256,7 @@ describe('runVerifyCli', () => {
     const b = await buildSealedBundle(root);
     const r = await run([b.dir, '--expect-root', b.rootHash]);
     expect(r.code).toBe(0);
-    expect(r.out.trim().split(/\s+/)[0]).toBe('VERIFIED');
+    expect(r.out.trim().split(/\s+/)[0]).toBe('HASHES-OK');
   });
 
   it('--expect-root with a wrong hash exits 1 and reports FAILED', async () => {
@@ -458,17 +460,30 @@ describe('runVerifyCli --pubkey (FR-019, SC-008, TS-031, TS-033)', () => {
     const b = await signed();
     const r = await run([b.dir]);
     expect(r.code).toBe(0);
-    expect(firstWord(r.out)).toBe('VERIFIED');
-    expect(r.out.split('\n')[1]).toBe('Signature: not checked (no --pubkey)');
+    expect(firstWord(r.out)).toBe('HASHES-OK');
+    expect(r.out).not.toContain('VERIFIED');
+    expect(r.out.split('\n')[1]).toBe('Signature: not checked (no --pubkey); this is not a verification of who vouches for the evidence');
     expect(r.out).not.toContain('extra');
   });
 
   it('--json reports the signature status and whether it was checked', async () => {
     const b = await signed();
     const checked = JSON.parse((await run([b.dir, '--json', '--pubkey', `${keyPath}.pub`])).out) as { ok: boolean; signatureChecked: boolean; signature: { status: string; keyId: string } };
-    expect(checked).toMatchObject({ ok: true, signatureChecked: true, signature: { status: 'valid', keyId } });
+    expect(checked).toMatchObject({ ok: true, verdict: 'verified', signatureChecked: true, signature: { status: 'valid', keyId } });
     const unchecked = JSON.parse((await run([b.dir, '--json'])).out) as { ok: boolean; signatureChecked: boolean };
-    expect(unchecked).toMatchObject({ ok: true, signatureChecked: false });
+    expect(unchecked).toMatchObject({ ok: true, verdict: 'hashes-ok', signatureChecked: false });
+    const other = path.join(keys, 'other', 'k.pem');
+    await generateSigningKey(other);
+    const unknown = JSON.parse((await run([b.dir, '--json', '--pubkey', `${other}.pub`])).out) as { verdict: string; ok: boolean };
+    expect(unknown).toMatchObject({ ok: false, verdict: 'failed' });
+    const unsignedRoot = await mkdtemp(path.join(tmpdir(), 'tessera-cli-uns-'));
+    try {
+      const u = await buildSealedBundle(unsignedRoot);
+      expect(JSON.parse((await run([u.dir, '--json', '--pubkey', `${keyPath}.pub`])).out)).toMatchObject({ ok: false, verdict: 'failed' });
+      expect(JSON.parse((await run([u.dir, '--json', '--expect-root', '0'.repeat(64)])).out)).toMatchObject({ ok: false, verdict: 'failed' });
+    } finally {
+      await removeTree(unsignedRoot);
+    }
   });
 
   it('--pubkey without a value exits 2', async () => {

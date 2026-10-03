@@ -50,11 +50,17 @@ npm run evidence:verify -- <bundle-dir> [--expect-root <sha256>] [--json]
 
 | Exitcode | Betekenis |
 |----------|-----------|
-| 0 | Alle controles geslaagd |
-| 1 | Minstens één issue of root-mismatch; elk issue op één regel: `<problem> <path>` |
+| 0 | Alle gevraagde controles geslaagd: `VERIFIED` (met `--pubkey`) of `HASHES-OK` (zonder `--pubkey`) |
+| 1 | Minstens één issue of root-mismatch, of met `--pubkey` een handtekening die `unsigned`, `unknown-key` of `invalid` is; elk issue op één regel: `<problem> <path>` |
 | 2 | Gebruiksfout of map onleesbaar |
 
-Tekstuitvoer is zonder kleur en begint met `VERIFIED` of `FAILED`, gevolgd door runId, root-hash en het aantal gecontroleerde entries (toegankelijk voor schermlezers en logs). `--json` geeft het `VerifyReport` op stdout.
+Tekstuitvoer is zonder kleur. Het eerste woord is het oordeel:
+
+- `VERIFIED`: de hashes kloppen én de handtekening is `valid` voor een sleutel die via `--pubkey` is meegegeven.
+- `HASHES-OK` (exit 0): de hashes kloppen, maar er is geen `--pubkey` gegeven. De tweede regel zegt `Signature: not checked (no --pubkey); this is not a verification of who vouches for the evidence`.
+- `FAILED` (exit 1): een hashprobleem, een root-mismatch, of met `--pubkey` een handtekening die niet `valid` is.
+
+Waarom: FR-019 en principe X. Hashes alleen bewijzen niet wie voor het bewijs instaat; wie schrijfrechten heeft, kan het manifest opnieuw berekenen. Het woord `VERIFIED` is daarom voorbehouden aan een geldige handtekening van een vertrouwde sleutel. De tweede regel is altijd een `Signature:`-regel, daarna volgen runId, root-hash en het aantal gecontroleerde entries (toegankelijk voor schermlezers en logs). `--json` geeft het `VerifyReport` op stdout met `verdict` (`verified`, `hashes-ok` of `failed`) en `signatureChecked`; het veld `ok` blijft zonder `--pubkey` op de hashes gebaseerd, met `--pubkey` vereist het ook een geldige handtekening.
 
 ## Controle zonder framework
 

@@ -522,7 +522,7 @@ Then('the trace is available with one verification command', async function (thi
   const run = await cli(['--trace', finding.evidenceRef.recordId, dir]);
   assert.equal(run.code, 0, run.stderr);
   const lines = run.stdout.split('\n');
-  assert.equal(lines[0], 'VERIFIED');
+  assert.equal(lines[0], 'HASHES-OK');
   assert.ok(lines.includes(`record: ${finding.evidenceRef.recordId}`));
   assert.ok(lines.includes(`revision: ${this.source.revision}`));
   const raw = sha256(rawOutputs(this)['scan.gitleaks'].stdout);

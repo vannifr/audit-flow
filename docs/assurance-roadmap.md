@@ -38,7 +38,7 @@ Elk item wordt een IIKit-feature wanneer het aan de beurt is. `Bron` verwijst na
 
 | # | Item | Niveau | Bron | Afhankelijk van | Status |
 |---|------|--------|------|-----------------|--------|
-| 004 | Betrouwbare scankern (status, evidence, redactie, manifest, handtekening lokale sleutel) | 1 | #4, #5, #6, #7, #10, #16, #22, #1, #2 | n.v.t. | spec en plan klaar, testify volgt |
+| 004 | Betrouwbare scankern (status, evidence, redactie, manifest, handtekening lokale sleutel) | 1 | #4, #5, #6, #7, #10, #16, #22, #1, #2 | n.v.t. | v0.2.0 (2026-10-03): zes stories, 45 BDD-scenario's, demo-gate groen; open: T042 tot T045, T046, T050, T051 |
 | 005 | Eigen Semgrep-regelset met gemeten recall (vervangt vaste packs) | 2 | beslissing 004-R6 | 004 | niet gestart |
 | 006 | Beveiligde uitvoering: sandbox, scannerconfig geforceerd, groottegrens werkmap | 2 | #1, #6, #16 | 004 | niet gestart |
 | 007 | Herstelbaarheid: heartbeats, korte timeouts, retrybeleid, worker-kill-test | 2 | #8, #17 | 004 | niet gestart |

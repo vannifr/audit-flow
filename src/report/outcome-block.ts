@@ -81,7 +81,7 @@ function evidenceLines(
   return [
     `Evidence bundle: ${bundle}`,
     `Evidence root hash: ${root}`,
-    `Verify: npm run evidence:verify -- ${shellArg(bundle)} --expect-root ${shellArg(root)}`,
+    `Verify: npm run evidence:verify -- ${shellArg(bundle)} --expect-root ${shellArg(root)} --pubkey <path to the public key>`,
     'Without Tessera, `sha256sum -c SHA256SUMS` in the bundle folder detects only changed or missing files; added files, the hash chain and the root hash need the verify command.',
     signed ? 'Integrity: hashes and a signed manifest' : 'Integrity: hashes only; the manifest is not signed',
     ...(signature === undefined ? [] : signatureLines(signature)),

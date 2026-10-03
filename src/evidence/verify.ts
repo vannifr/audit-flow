@@ -21,8 +21,11 @@ export interface VerifyIssue {
   actual?: string;
 }
 
+export type VerifyVerdict = 'verified' | 'hashes-ok' | 'failed';
+
 export interface VerifyReport {
-  ok: boolean;
+  ok: HashesOkUnlessKeysGiven;
+  verdict: VerifyVerdict;
   bundlePath: string;
   runId: string | null;
   rootHash: string | null;
@@ -33,6 +36,8 @@ export interface VerifyReport {
   hashesOk: boolean;
   signature: SignatureReport;
 }
+
+export type HashesOkUnlessKeysGiven = boolean;
 
 export interface EvidenceTrace {
   recordId: string;
@@ -275,6 +280,12 @@ function recordProblem(content: Buffer | null, entry: ManifestEntry, runId: stri
   return null;
 }
 
+function verdictFor(hashesOk: boolean, keysGiven: boolean, signature: SignatureReport): VerifyVerdict {
+  if (!hashesOk) return 'failed';
+  if (!keysGiven) return 'hashes-ok';
+  return signature.status === 'valid' ? 'verified' : 'failed';
+}
+
 export async function verifyEvidenceBundle(bundleDir: string, opts: VerifyOptions = {}): Promise<VerifyReport> {
   await assertBundleDir(bundleDir);
   const expectRoot = typeof opts.expectRootHash === 'string' ? opts.expectRootHash.trim().toLowerCase() : undefined;
@@ -293,6 +304,7 @@ export async function verifyEvidenceBundle(bundleDir: string, opts: VerifyOption
       issues: [{ path: MANIFEST_FILE, problem: 'invalid-record' }],
       hashesOk: false,
       signature,
+      verdict: 'failed',
     };
   }
 
@@ -381,6 +393,7 @@ export async function verifyEvidenceBundle(bundleDir: string, opts: VerifyOption
     issues: sorted,
     hashesOk,
     signature,
+    verdict: verdictFor(hashesOk, opts.trustedKeys !== undefined, signature),
   };
 }
 

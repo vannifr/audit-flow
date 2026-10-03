@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { traceEvidence, verifyEvidenceBundle } from '../evidence/verify';
-import type { VerifyReport } from '../evidence/verify';
+import type { VerifyReport, VerifyVerdict } from '../evidence/verify';
 
 export interface CliIo {
   stdout: (s: string) => void;
@@ -59,8 +59,10 @@ function parseArgs(argv: string[]): CliArgs | string {
   return { bundleDir: path.resolve(bundleDir), expectRoot, json, trace, pubkeys };
 }
 
+const HEADLINE: Record<VerifyVerdict, string> = { verified: 'VERIFIED', 'hashes-ok': 'HASHES-OK', failed: 'FAILED' };
+
 function signatureLine(report: VerifyReport, checked: boolean): string {
-  if (!checked) return 'Signature: not checked (no --pubkey)';
+  if (!checked) return 'Signature: not checked (no --pubkey); this is not a verification of who vouches for the evidence';
   const sig = report.signature;
   if (sig.status === 'valid') {
     return `Signature: valid (key ${plain(sig.keyId ?? 'unknown')}, signed ${plain(sig.signedAt ?? 'unknown')}, time not independently attested)`;
@@ -71,7 +73,7 @@ function signatureLine(report: VerifyReport, checked: boolean): string {
 
 function textReport(report: VerifyReport, checked: boolean): string {
   const lines = [
-    report.ok ? 'VERIFIED' : 'FAILED',
+    HEADLINE[report.verdict],
     signatureLine(report, checked),
     `runId: ${plain(report.runId ?? 'unknown')}`,
     `root hash: ${report.rootHash ?? 'unknown'}`,
@@ -100,9 +102,9 @@ export async function runVerifyCli(argv: string[], io: CliIo): Promise<number> {
     io.stderr(`cannot read bundle ${plain(args.bundleDir)}: ${error instanceof Error ? plain(error.message) : 'unknown error'}\n`);
     return 2;
   }
-  if (args.trace === undefined || !report.ok) {
+  if (args.trace === undefined || report.verdict === 'failed') {
     io.stdout(args.json ? `${JSON.stringify({ ...report, signatureChecked: checked }, null, 2)}\n` : textReport(report, checked));
-    return report.ok ? 0 : 1;
+    return report.verdict === 'failed' ? 1 : 0;
   }
   try {
     const trace = await traceEvidence(args.bundleDir, args.trace);
