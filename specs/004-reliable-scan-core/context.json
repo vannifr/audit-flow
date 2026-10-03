@@ -1,0 +1,8 @@
+{
+  "testify": {
+    "assertion_hash": "cc7bd7a7b20af30daaeea8421900c9905d52ef498216fcbfdecab07ad288dae6",
+    "generated_at": "2026-10-03T11:34:29Z",
+    "features_dir": "specs/004-reliable-scan-core/tests/features",
+    "file_count": 6
+  }
+}
