@@ -12,9 +12,10 @@ interface CliArgs {
   expectRoot?: string;
   json: boolean;
   trace?: string;
+  pubkeys: string[];
 }
 
-const USAGE = 'usage: npm run evidence:verify -- <bundle-dir> [--expect-root <sha256>] [--json] [--trace <recordId>]\n';
+const USAGE = 'usage: npm run evidence:verify -- <bundle-dir> [--expect-root <sha256>] [--pubkey <file|dir>]... [--json] [--trace <recordId>]\n';
 const HEX64 = /^[0-9a-fA-F]{64}$/;
 
 function plain(value: string): string {
@@ -26,10 +27,16 @@ function parseArgs(argv: string[]): CliArgs | string {
   let expectRoot: string | undefined;
   let trace: string | undefined;
   let json = false;
+  const pubkeys: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--json') {
       json = true;
+    } else if (arg === '--pubkey') {
+      const value = argv[i + 1];
+      if (value === undefined || value.startsWith('--') || value.length === 0) return `${arg} requires a value`;
+      i += 1;
+      pubkeys.push(path.resolve(value));
     } else if (arg === '--expect-root' || arg === '--trace') {
       const value = argv[i + 1];
       if (value === undefined || value.startsWith('--')) return `${arg} requires a value`;
@@ -49,12 +56,23 @@ function parseArgs(argv: string[]): CliArgs | string {
     }
   }
   if (bundleDir === undefined) return 'missing bundle directory';
-  return { bundleDir: path.resolve(bundleDir), expectRoot, json, trace };
+  return { bundleDir: path.resolve(bundleDir), expectRoot, json, trace, pubkeys };
 }
 
-function textReport(report: VerifyReport): string {
+function signatureLine(report: VerifyReport, checked: boolean): string {
+  if (!checked) return 'Signature: not checked (no --pubkey)';
+  const sig = report.signature;
+  if (sig.status === 'valid') {
+    return `Signature: valid (key ${plain(sig.keyId ?? 'unknown')}, signed ${plain(sig.signedAt ?? 'unknown')}, time not independently attested)`;
+  }
+  if (sig.status === 'unknown-key') return `Signature: unknown-key (key ${plain(sig.keyId ?? 'unknown')} is not among the trusted public keys)`;
+  return `Signature: ${sig.status}`;
+}
+
+function textReport(report: VerifyReport, checked: boolean): string {
   const lines = [
     report.ok ? 'VERIFIED' : 'FAILED',
+    signatureLine(report, checked),
     `runId: ${plain(report.runId ?? 'unknown')}`,
     `root hash: ${report.rootHash ?? 'unknown'}`,
     `checked entries: ${report.checkedEntries}`,
@@ -72,23 +90,27 @@ export async function runVerifyCli(argv: string[], io: CliIo): Promise<number> {
     return 2;
   }
   let report: VerifyReport;
+  const checked = args.pubkeys.length > 0;
   try {
-    report = await verifyEvidenceBundle(args.bundleDir, args.expectRoot === undefined ? {} : { expectRootHash: args.expectRoot });
+    report = await verifyEvidenceBundle(args.bundleDir, {
+      ...(args.expectRoot === undefined ? {} : { expectRootHash: args.expectRoot }),
+      ...(checked ? { trustedKeys: args.pubkeys } : {}),
+    });
   } catch (error) {
     io.stderr(`cannot read bundle ${plain(args.bundleDir)}: ${error instanceof Error ? plain(error.message) : 'unknown error'}\n`);
     return 2;
   }
   if (args.trace === undefined || !report.ok) {
-    io.stdout(args.json ? `${JSON.stringify(report, null, 2)}\n` : textReport(report));
+    io.stdout(args.json ? `${JSON.stringify({ ...report, signatureChecked: checked }, null, 2)}\n` : textReport(report, checked));
     return report.ok ? 0 : 1;
   }
   try {
     const trace = await traceEvidence(args.bundleDir, args.trace);
     if (args.json) {
-      io.stdout(`${JSON.stringify({ report, trace }, null, 2)}\n`);
+      io.stdout(`${JSON.stringify({ report: { ...report, signatureChecked: checked }, trace }, null, 2)}\n`);
     } else {
       const lines = [
-        textReport(report).trimEnd(),
+        textReport(report, checked).trimEnd(),
         `record: ${trace.recordId}`,
         `step: ${plain(trace.record.stepId)}`,
         `tool: ${plain(trace.record.tool.name)} ${plain(trace.record.tool.version ?? 'unknown')}`,

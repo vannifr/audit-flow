@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createEvidenceStore } from '../../../src/evidence/store';
 import { runVerifyCli } from '../../../src/cli/verify-evidence';
+import { generateSigningKey, signEvidenceBundle } from '../../../src/evidence/sign';
 import type { ArtifactRef, EvidenceRecord } from '../../../src/evidence/types';
 
 const sha = (b: Buffer | string): string => createHash('sha256').update(b).digest('hex');
@@ -365,5 +366,114 @@ describe('runVerifyCli trace on a tampered bundle', () => {
     const b = await buildSealedBundle(root);
     const r = await run([b.dir, '--expect-root', b.rootHash.toUpperCase()]);
     expect(r.code).toBe(0);
+  });
+});
+
+describe('runVerifyCli --pubkey (FR-019, SC-008, TS-031, TS-033)', () => {
+  let root: string;
+  let keys: string;
+  let keyPath: string;
+  let keyId: string;
+  const SIGNED = new Date('2026-03-01T12:05:00.000Z');
+
+  beforeEach(async () => {
+    root = await mkdtemp(path.join(tmpdir(), 'tessera-cli-sig-'));
+    keys = await mkdtemp(path.join(tmpdir(), 'tessera-cli-keys-'));
+    keyPath = path.join(keys, 'signer', 'ed25519.pem');
+    keyId = (await generateSigningKey(keyPath)).keyId;
+  });
+
+  afterEach(async () => {
+    await removeTree(root);
+    await rm(keys, { recursive: true, force: true });
+  });
+
+  async function signed(): Promise<Sealed> {
+    const b = await buildSealedBundle(root);
+    await signEvidenceBundle({ bundleDir: b.dir, keyPath, evidenceRoot: root, clock: () => SIGNED });
+    return b;
+  }
+
+  const firstWord = (out: string): string => out.trim().split(/\s+/)[0];
+  const signatureLine = (out: string): string | undefined => out.split('\n').find((l) => l.startsWith('Signature:'));
+
+  it('TS-031 a signed bundle with the right public key exits 0 and names the key and the unattested time', async () => {
+    const b = await signed();
+    const r = await run([b.dir, '--pubkey', `${keyPath}.pub`, '--expect-root', b.rootHash]);
+    expect(r.code).toBe(0);
+    expect(firstWord(r.out)).toBe('VERIFIED');
+    expect(r.out.split('\n')[1]).toBe(`Signature: valid (key ${keyId}, signed ${SIGNED.toISOString()}, time not independently attested)`);
+  });
+
+  it('accepts a directory of public keys and repeated --pubkey flags', async () => {
+    const b = await signed();
+    const other = path.join(keys, 'other', 'k.pem');
+    await generateSigningKey(other);
+    const r = await run([b.dir, '--pubkey', `${other}.pub`, '--pubkey', path.dirname(keyPath)]);
+    expect(r.code).toBe(0);
+    expect(signatureLine(r.out)).toMatch(/^Signature: valid/);
+  });
+
+  it('TS-033 SC-008 an unsigned bundle with --pubkey exits 1, starts with FAILED and says unsigned', async () => {
+    const b = await buildSealedBundle(root);
+    const r = await run([b.dir, '--pubkey', `${keyPath}.pub`]);
+    expect(r.code).toBe(1);
+    expect(firstWord(r.out)).toBe('FAILED');
+    expect(r.out).not.toContain('VERIFIED');
+    expect(signatureLine(r.out)).toBe('Signature: unsigned');
+  });
+
+  it('TS-033 SC-008 a bundle signed by a key the verifier lacks exits 1 with unknown-key', async () => {
+    const b = await signed();
+    const other = path.join(keys, 'other', 'k.pem');
+    await generateSigningKey(other);
+    const r = await run([b.dir, '--pubkey', `${other}.pub`]);
+    expect(r.code).toBe(1);
+    expect(firstWord(r.out)).toBe('FAILED');
+    expect(r.out).not.toContain('VERIFIED');
+    expect(signatureLine(r.out)).toMatch(/^Signature: unknown-key \(key [0-9a-f]{64} /);
+  });
+
+  it('a tampered signature exits 1 with invalid', async () => {
+    const b = await signed();
+    await chmod(b.dir, 0o700);
+    const sigFile = path.join(b.dir, 'signature.json');
+    await chmod(sigFile, 0o600);
+    const sig = JSON.parse(await readFile(sigFile, 'utf8')) as { signedAt: string };
+    await writeFile(sigFile, JSON.stringify({ ...sig, signedAt: '2030-01-01T00:00:00.000Z' }));
+    const r = await run([b.dir, '--pubkey', `${keyPath}.pub`]);
+    expect(r.code).toBe(1);
+    expect(firstWord(r.out)).toBe('FAILED');
+    expect(signatureLine(r.out)).toBe('Signature: invalid');
+  });
+
+  it('broken hashes fail even with a valid signature', async () => {
+    const b = await signed();
+    const r = await run([b.dir, '--pubkey', `${keyPath}.pub`, '--expect-root', '0'.repeat(64)]);
+    expect(r.code).toBe(1);
+    expect(firstWord(r.out)).toBe('FAILED');
+  });
+
+  it('without --pubkey a signed bundle verifies by hashes and says the signature was not checked, with no extra issue', async () => {
+    const b = await signed();
+    const r = await run([b.dir]);
+    expect(r.code).toBe(0);
+    expect(firstWord(r.out)).toBe('VERIFIED');
+    expect(r.out.split('\n')[1]).toBe('Signature: not checked (no --pubkey)');
+    expect(r.out).not.toContain('extra');
+  });
+
+  it('--json reports the signature status and whether it was checked', async () => {
+    const b = await signed();
+    const checked = JSON.parse((await run([b.dir, '--json', '--pubkey', `${keyPath}.pub`])).out) as { ok: boolean; signatureChecked: boolean; signature: { status: string; keyId: string } };
+    expect(checked).toMatchObject({ ok: true, signatureChecked: true, signature: { status: 'valid', keyId } });
+    const unchecked = JSON.parse((await run([b.dir, '--json'])).out) as { ok: boolean; signatureChecked: boolean };
+    expect(unchecked).toMatchObject({ ok: true, signatureChecked: false });
+  });
+
+  it('--pubkey without a value exits 2', async () => {
+    const b = await buildSealedBundle(root);
+    expect((await run([b.dir, '--pubkey'])).code).toBe(2);
+    expect((await run([b.dir, '--pubkey', '--json'])).code).toBe(2);
   });
 });

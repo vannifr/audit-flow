@@ -10,6 +10,7 @@ import type { AuditRun, FetchedSource } from '../../../src/scan/lifecycle';
 import { chmod, symlink } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { verifyEvidenceBundle } from '../../../src/evidence/verify';
+import { generateSigningKey } from '../../../src/evidence/sign';
 import type { EvidenceManifest } from '../../../src/evidence/types';
 
 const attempt = vi.hoisted(() => ({ value: 1 }));
@@ -353,7 +354,8 @@ describe('sealEvidence activity (FR-009, FR-015, FR-017)', () => {
     const acts = await scanned();
     const result = await acts.sealEvidence({ run, source, repoUrl: REPO_URL, usedRecordIds: ['scan.gitleaks.a1'], workflowId: 'wf-seal' });
     expect(result).toMatchObject({ bundlePath: bundle(), recordCount: 1, artifactCount: 2, abandonedCount: 0, selfVerified: true });
-    expect(Object.keys(result).sort()).toEqual(['abandonedCount', 'artifactCount', 'bundlePath', 'recordCount', 'rootHash', 'selfVerified']);
+    expect(Object.keys(result).sort()).toEqual(['abandonedCount', 'artifactCount', 'bundlePath', 'recordCount', 'rootHash', 'selfVerified', 'signatureRequired']);
+    expect(result.signatureRequired).toBe(false);
     const m = await manifestOf();
     expect(m.runId).toBe(RUN_ID);
     expect(m.temporalRunId).toBe(RUN_ID);
@@ -466,5 +468,196 @@ describe('sealEvidence activity (FR-009, FR-015, FR-017)', () => {
     const acts = createScanActivities(deps(runnerFor(outcome()), { evidenceRoot: path.join(blocker, 'sub') }));
     const failure = await expectFailure(acts.sealEvidence({ run, source, repoUrl: REPO_URL, usedRecordIds: [], workflowId: 'wf-seal' }), 'EvidenceSealError', false);
     expect(failure.message).toBe('evidence seal: bundle could not be sealed');
+  });
+});
+
+describe('signEvidence activity (FR-018, FR-020, TS-035, TS-036)', () => {
+  const bundle = (): string => path.join(evidenceRoot, RUN_ID);
+  let keyRoot: string;
+
+  beforeEach(async () => {
+    keyRoot = await mkdtemp(path.join(os.tmpdir(), 'tessera-signkey-'));
+  });
+
+  afterEach(async () => {
+    await chmod(bundle(), 0o700).catch(() => undefined);
+    await rm(keyRoot, { recursive: true, force: true });
+  });
+
+  async function sealed(overrides: Partial<ScanActivityDeps> = {}): Promise<{ acts: ReturnType<typeof createScanActivities>; rootHash: string }> {
+    const acts = createScanActivities(deps(runnerFor(await fixture('gitleaks-leak.json')), overrides));
+    await acts.runGitleaks(run, source, REPO_URL);
+    const sealResult = await acts.sealEvidence({ run, source, repoUrl: REPO_URL, usedRecordIds: ['scan.gitleaks.a1'], workflowId: 'wf-sign' });
+    return { acts, rootHash: sealResult.rootHash };
+  }
+
+  it('signs the sealed bundle with the configured key and computes level 1 from a real verification', async () => {
+    const keyPath = path.join(keyRoot, 'signing', 'ed25519.pem');
+    const { keyId } = await generateSigningKey(keyPath);
+    const { acts, rootHash } = await sealed({ signingKeyPath: keyPath });
+    const result = await acts.signEvidence({ run, rootHash });
+    expect(result).toEqual({ signed: true, required: true, keyId, signedAt: T0.toISOString(), level: 1 });
+    expect((await stat(path.join(bundle(), 'signature.json'))).mode & 0o777).toBe(0o400);
+    expect((await stat(bundle())).mode & 0o777).toBe(0o500);
+    const report = await verifyEvidenceBundle(bundle(), { expectRootHash: rootHash, trustedKeys: [`${keyPath}.pub`] });
+    expect(report.ok).toBe(true);
+    expect(report.signature.status).toBe('valid');
+  });
+
+  it('is idempotent on a retry after the signature was written', async () => {
+    const keyPath = path.join(keyRoot, 'signing', 'ed25519.pem');
+    await generateSigningKey(keyPath);
+    const { acts, rootHash } = await sealed({ signingKeyPath: keyPath });
+    const first = await acts.signEvidence({ run, rootHash });
+    const before = await readFile(path.join(bundle(), 'signature.json'));
+    const later = createScanActivities(deps(runnerFor(outcome()), { signingKeyPath: keyPath, clock: () => new Date('2027-01-01T00:00:00.000Z') }));
+    expect(await later.signEvidence({ run, rootHash })).toEqual(first);
+    expect((await readFile(path.join(bundle(), 'signature.json'))).equals(before)).toBe(true);
+  });
+
+  it('gives an unsigned level 0 result when no key exists and no signature is required', async () => {
+    const { acts, rootHash } = await sealed({ signingKeyPath: path.join(keyRoot, 'absent.pem') });
+    expect(await acts.signEvidence({ run, rootHash })).toEqual({ signed: false, required: false, level: 0 });
+    expect(await readdir(bundle())).not.toContain('signature.json');
+    const none = await sealedAgain();
+    expect(none).toEqual({ signed: false, required: false, level: 0 });
+  });
+
+  async function sealedAgain(): Promise<unknown> {
+    const acts = createScanActivities(deps(runnerFor(outcome())));
+    const report = await verifyEvidenceBundle(bundle());
+    return acts.signEvidence({ run, rootHash: report.rootHash as string });
+  }
+
+  it('TS-036 reports a required but missing signature with level 0', async () => {
+    const { acts, rootHash } = await sealed({ signingKeyPath: path.join(keyRoot, 'absent.pem'), requireSignature: true });
+    const result = await acts.signEvidence({ run, rootHash });
+    expect(result).toMatchObject({ signed: false, required: true, level: 0 });
+    expect(result.detail).toMatch(/no signing key/);
+  });
+
+  it('TS-035 refuses a key inside the evidence root with a clear cause and writes no signature', async () => {
+    const inside = path.join(evidenceRoot, 'keys', 'ed25519.pem');
+    await generateSigningKey(inside);
+    const { acts, rootHash } = await sealed({ signingKeyPath: inside });
+    const result = await acts.signEvidence({ run, rootHash });
+    expect(result).toMatchObject({ signed: false, required: true, level: 0 });
+    expect(result.detail).toMatch(/^evidence sign: refusing a signing key inside the evidence folder/);
+    expect(await readdir(bundle())).not.toContain('signature.json');
+    const body = (await readFile(inside, 'utf8')).replace(/-----[^-]+-----/g, '').replace(/\s+/g, '');
+    expect(JSON.stringify(result)).not.toContain(body);
+  });
+
+  it('refuses a key file that group or others can read', async () => {
+    const keyPath = path.join(keyRoot, 'signing', 'ed25519.pem');
+    await generateSigningKey(keyPath);
+    await chmod(keyPath, 0o640);
+    const { acts, rootHash } = await sealed({ signingKeyPath: keyPath });
+    const result = await acts.signEvidence({ run, rootHash });
+    expect(result).toMatchObject({ signed: false, required: true, level: 0 });
+    expect(result.detail).toMatch(/group or others/);
+  });
+
+  it('gives level 0 when the published public key does not belong to the signing key', async () => {
+    const keyPath = path.join(keyRoot, 'signing', 'ed25519.pem');
+    await generateSigningKey(keyPath);
+    const other = path.join(keyRoot, 'other', 'k.pem');
+    await generateSigningKey(other);
+    await chmod(`${keyPath}.pub`, 0o600);
+    await writeFile(`${keyPath}.pub`, await readFile(`${other}.pub`));
+    const { acts, rootHash } = await sealed({ signingKeyPath: keyPath });
+    const result = await acts.signEvidence({ run, rootHash });
+    expect(result.signed).toBe(true);
+    expect(result.level).toBe(0);
+    expect(result.detail).toMatch(/unknown-key/);
+  });
+
+  it('gives level 0 when the bundle does not match the expected root hash', async () => {
+    const keyPath = path.join(keyRoot, 'signing', 'ed25519.pem');
+    await generateSigningKey(keyPath);
+    const { acts } = await sealed({ signingKeyPath: keyPath });
+    const result = await acts.signEvidence({ run, rootHash: 'e'.repeat(64) });
+    expect(result.level).toBe(0);
+    expect(result.detail).toMatch(/does not verify/);
+  });
+
+  it('tells the workflow at seal time whether a signature is required', async () => {
+    const keyPath = path.join(keyRoot, 'signing', 'ed25519.pem');
+    expect((await sealed({ signingKeyPath: path.join(keyRoot, 'absent.pem') })).acts).toBeDefined();
+    const plain = createScanActivities(deps(runnerFor(outcome()), { signingKeyPath: path.join(keyRoot, 'absent.pem') }));
+    expect((await plain.sealEvidence({ run, source, repoUrl: REPO_URL, usedRecordIds: [], workflowId: 'wf-sign' })).signatureRequired).toBe(false);
+    const demanded = createScanActivities(deps(runnerFor(outcome()), { signingKeyPath: path.join(keyRoot, 'absent.pem'), requireSignature: true }));
+    expect((await demanded.sealEvidence({ run, source, repoUrl: REPO_URL, usedRecordIds: [], workflowId: 'wf-sign' })).signatureRequired).toBe(true);
+    await generateSigningKey(keyPath);
+    const keyed = createScanActivities(deps(runnerFor(outcome()), { signingKeyPath: keyPath }));
+    expect((await keyed.sealEvidence({ run, source, repoUrl: REPO_URL, usedRecordIds: [], workflowId: 'wf-sign' })).signatureRequired).toBe(true);
+  });
+
+  it('refuses an invalid root hash as non-retryable input', async () => {
+    const acts = createScanActivities(deps(runnerFor(outcome())));
+    await expectFailure(acts.signEvidence({ run, rootHash: 'not-a-hash' }), 'InvalidRunError', true);
+  });
+
+  it('turns an unexpected signing error into a generic cause without internals', async () => {
+    const keyPath = path.join(keyRoot, 'signing', 'ed25519.pem');
+    await generateSigningKey(keyPath);
+    const acts = createScanActivities(deps(runnerFor(outcome()), { signingKeyPath: keyPath }));
+    const result = await acts.signEvidence({ run, rootHash: 'f'.repeat(64) });
+    expect(result).toMatchObject({ signed: false, required: true, level: 0 });
+    expect(result.detail).toMatch(/^evidence sign:/);
+  });
+});
+
+describe('worker-registered signEvidence', () => {
+  const saved = { root: process.env.TESSERA_EVIDENCE_ROOT, key: process.env.TESSERA_SIGNING_KEY, req: process.env.TESSERA_REQUIRE_SIGNATURE };
+  let keyRoot: string;
+
+  beforeEach(async () => {
+    keyRoot = await mkdtemp(path.join(os.tmpdir(), 'tessera-wsign-'));
+  });
+
+  afterEach(async () => {
+    for (const [name, value] of [['TESSERA_EVIDENCE_ROOT', saved.root], ['TESSERA_SIGNING_KEY', saved.key], ['TESSERA_REQUIRE_SIGNATURE', saved.req]] as const) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    await rm(keyRoot, { recursive: true, force: true });
+  });
+
+  async function sealedOwnRun(): Promise<{ own: AuditRun; workDir: string; rootHash: string; activities: typeof import('../../../src/activities/index') }> {
+    process.env.TESSERA_EVIDENCE_ROOT = evidenceRoot;
+    const runId = `sign-${process.pid}-${Date.now()}`;
+    const workDir = path.join(os.tmpdir(), `tessera-${runId}`);
+    const own: AuditRun = { runId, workDir, repoDir: path.join(workDir, 'repo') };
+    const activities = await import('../../../src/activities/index');
+    const sealResult = await activities.sealEvidence({ run: own, source: null, repoUrl: REPO_URL, usedRecordIds: [], workflowId: 'wf-sign' });
+    return { own, workDir, rootHash: sealResult.rootHash, activities };
+  }
+
+  it('signs with TESSERA_SIGNING_KEY and reports level 1', async () => {
+    const keyPath = path.join(keyRoot, 'ed25519.pem');
+    const { keyId } = await generateSigningKey(keyPath);
+    process.env.TESSERA_SIGNING_KEY = keyPath;
+    delete process.env.TESSERA_REQUIRE_SIGNATURE;
+    const { own, workDir, rootHash, activities } = await sealedOwnRun();
+    try {
+      const result = await activities.signEvidence({ run: own, rootHash });
+      expect(result).toMatchObject({ signed: true, required: true, keyId, level: 1 });
+    } finally {
+      await chmod(path.join(evidenceRoot, own.runId), 0o700).catch(() => undefined);
+      await rm(workDir, { recursive: true, force: true });
+    }
+  });
+
+  it('honours TESSERA_REQUIRE_SIGNATURE=1 when the key is missing', async () => {
+    process.env.TESSERA_SIGNING_KEY = path.join(keyRoot, 'missing.pem');
+    process.env.TESSERA_REQUIRE_SIGNATURE = '1';
+    const { own, workDir, rootHash, activities } = await sealedOwnRun();
+    try {
+      expect(await activities.signEvidence({ run: own, rootHash })).toMatchObject({ signed: false, required: true, level: 0 });
+    } finally {
+      await chmod(path.join(evidenceRoot, own.runId), 0o700).catch(() => undefined);
+      await rm(workDir, { recursive: true, force: true });
+    }
   });
 });

@@ -46,6 +46,7 @@ const lifecycle = await import('../../src/scan/lifecycle');
 const { createEvidenceStore } = await import('../../src/evidence/store');
 const { verifyEvidenceBundle } = await import('../../src/evidence/verify');
 const { generateReport } = await import('../../src/activities/index');
+const { generateSigningKey } = await import('../../src/evidence/sign');
 
 const T0 = new Date('2026-01-01T00:00:00.000Z');
 const REPO_URL = 'https://github.com/acme/app';
@@ -94,9 +95,10 @@ async function runner(): Promise<ProcessRunner> {
   };
 }
 
-async function wire(): Promise<void> {
+async function wire(signingKeyPath?: string): Promise<void> {
   const run = await runner();
   const scans = createScanActivities({
+    signingKeyPath,
     runner: run,
     clock: () => T0,
     evidenceRoot,
@@ -147,6 +149,7 @@ async function wire(): Promise<void> {
     generateReport: (async (input: Parameters<typeof generateReport>[0]) => generateReport({ ...input, outputDir: outDir })) as Fn,
     cleanupRun: async (auditRun: unknown) => lifecycle.cleanupRun(auditRun as AuditRun, tmpRoot),
     sealEvidence: scans.sealEvidence as Fn,
+    signEvidence: scans.signEvidence as Fn,
   };
 }
 
@@ -197,7 +200,75 @@ describe('applicationAudit with real evidence activities (FR-009, FR-015, FR-017
     expect(lines).toContain(`Evidence root hash: ${rootHash}`);
     expect(lines).toContain(`Verify: npm run evidence:verify -- ${bundle()} --expect-root ${rootHash}`);
     expect(lines).toContain('Integrity: hashes only; the manifest is not signed');
+    expect(lines).toContain('Signature: none');
+    expect(lines).toContain('Assurance level: 0');
+    expect(result.signature).toEqual({ signed: false, level: 0 });
     expect(text).toContain('`sha256sum -c SHA256SUMS`');
+  });
+
+  it('keeps an audit without a required signature complete and says Signature: none when the signing activity throws', async () => {
+    harness.activities.signEvidence = async () => {
+      throw new Error('worker lost');
+    };
+
+    const result: AuditResult = await applicationAudit(INPUT);
+
+    expect(result.outcome).toBe('complete');
+    expect(result.signature).toEqual({ signed: false, level: 0 });
+    const lines = (await readFile(result.reportPath, 'utf8')).split('\n');
+    expect(lines).toContain('Signature: none');
+    expect(lines).toContain('Assurance level: 0');
+    expect(lines[0]).toBe('Audit outcome: COMPLETE');
+  });
+
+  it('TS-036 ends incomplete when a signing key is configured but the signing activity throws', async () => {
+    const keyDir = await mkdtemp(path.join(os.tmpdir(), 'tessera-wfe-key-'));
+    try {
+      const keyPath = path.join(keyDir, 'signing', 'ed25519.pem');
+      await generateSigningKey(keyPath);
+      await wire(keyPath);
+      harness.activities.signEvidence = async () => {
+        throw new Error('worker lost');
+      };
+
+      const result: AuditResult = await applicationAudit(INPUT);
+
+      expect(result.outcome).toBe('incomplete');
+      expect(result.notPerformed).toEqual([expect.objectContaining({ scanner: 'evidence', status: 'unavailable', cause: 'unsigned' })]);
+      expect(result.signature).toEqual({ signed: false, level: 0 });
+      const lines = (await readFile(result.reportPath, 'utf8')).split('\n');
+      expect(lines[0]).toBe('Audit outcome: INCOMPLETE');
+      expect(lines).toContain('Signature: none');
+      expect(lines).toContain('Assurance level: 0');
+    } finally {
+      await rm(keyDir, { recursive: true, force: true });
+    }
+  });
+
+  it('TS-031 TS-034 signs the sealed bundle with a configured key, verifies with the public key and states the limits in the report', async () => {
+    const keyDir = await mkdtemp(path.join(os.tmpdir(), 'tessera-wfe-key-'));
+    try {
+      const keyPath = path.join(keyDir, 'signing', 'ed25519.pem');
+      const { keyId } = await generateSigningKey(keyPath);
+      await wire(keyPath);
+
+      const result: AuditResult = await applicationAudit(INPUT);
+
+      expect(result.outcome).toBe('complete');
+      expect(result.signature).toEqual({ signed: true, keyId, signedAt: T0.toISOString(), level: 1 });
+      const verified = await verifyEvidenceBundle(bundle(), { expectRootHash: result.evidence?.rootHash, trustedKeys: [`${keyPath}.pub`] });
+      expect(verified.ok).toBe(true);
+      expect(verified.signature).toEqual({ status: 'valid', keyId, signedAt: T0.toISOString(), timeAttested: false });
+      const lines = (await readFile(result.reportPath, 'utf8')).split('\n');
+      expect(lines).toContain('Integrity: hashes and a signed manifest');
+      expect(lines).not.toContain('Integrity: hashes only; the manifest is not signed');
+      expect(lines).toContain(`Signature: valid, key ${keyId}, signed ${T0.toISOString()} (signing time is not independently attested)`);
+      expect(lines).toContain('Assurance level: 1');
+      const body = (await readFile(keyPath, 'utf8')).replace(/-----[^-]+-----/g, '').replace(/\s+/g, '');
+      expect(lines.join('\n')).not.toContain(body);
+    } finally {
+      await rm(keyDir, { recursive: true, force: true });
+    }
   });
 
   it('leaves a sealed, verifiable bundle after a source failure and names it in the failure details', async () => {

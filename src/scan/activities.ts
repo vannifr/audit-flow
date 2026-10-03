@@ -3,7 +3,10 @@ import path from 'node:path';
 import { ApplicationFailure, Context } from '@temporalio/activity';
 import { openSealedBundle, sealEvidenceBundle } from '../evidence/manifest';
 import type { SealEvidenceResult } from '../evidence/manifest';
+import { computeAssuranceLevel, signEvidenceBundle, verifyBundleSignature } from '../evidence/sign';
+import type { AssuranceLevel } from '../evidence/sign';
 import { createEvidenceStore } from '../evidence/store';
+import { verifyEvidenceBundle } from '../evidence/verify';
 import type { EvidenceRef, EvidenceStore } from '../evidence/types';
 import type { AuditRun, FetchedSource } from './lifecycle';
 import { validateRepoUrl } from './repo-url';
@@ -23,6 +26,8 @@ export interface ScanActivityDeps {
   frameworkVersion: string;
   workerEnv: Readonly<Record<string, string | undefined>>;
   configDir: string;
+  signingKeyPath?: string | null;
+  requireSignature?: boolean;
 }
 
 export type ScanActivity = (run: AuditRun, source: FetchedSource, repoUrl: string) => Promise<ScanStepResult>;
@@ -35,7 +40,27 @@ export interface SealEvidenceActivityInput {
   workflowId?: string;
 }
 
-export type SealEvidenceActivity = (input: SealEvidenceActivityInput) => Promise<SealEvidenceResult>;
+export interface SealEvidenceActivityResult extends SealEvidenceResult {
+  signatureRequired: boolean;
+}
+
+export type SealEvidenceActivity = (input: SealEvidenceActivityInput) => Promise<SealEvidenceActivityResult>;
+
+export interface SignEvidenceActivityInput {
+  run: AuditRun;
+  rootHash: string;
+}
+
+export interface SignEvidenceResult {
+  signed: boolean;
+  required: boolean;
+  keyId?: string;
+  signedAt?: string;
+  level: AssuranceLevel;
+  detail?: string;
+}
+
+export type SignEvidenceActivity = (input: SignEvidenceActivityInput) => Promise<SignEvidenceResult>;
 
 export interface ScanActivities {
   runGitleaks: ScanActivity;
@@ -43,6 +68,7 @@ export interface ScanActivities {
   runNpmAudit: ScanActivity;
   runLicenseCheck: ScanActivity;
   sealEvidence: SealEvidenceActivity;
+  signEvidence: SignEvidenceActivity;
 }
 
 const RUN_ID = /^[A-Za-z0-9_-]{1,128}$/;
@@ -51,6 +77,8 @@ const RECORD_ID = /^[A-Za-z0-9_-][A-Za-z0-9._-]{0,254}$/;
 const SEAL_PREFIX = 'evidence seal:';
 const REVISION = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
 const STORE_PREFIX = 'evidence store:';
+const SIGN_PREFIX = 'evidence sign:';
+const HEX64 = /^[0-9a-f]{64}$/;
 
 function isInside(root: string, candidate: string): boolean {
   const rel = path.relative(root, candidate);
@@ -179,7 +207,20 @@ async function exists(p: string): Promise<boolean> {
   }
 }
 
+async function signatureRequired(deps: ScanActivityDeps): Promise<boolean> {
+  if (deps.requireSignature === true) return true;
+  return typeof deps.signingKeyPath === 'string' && deps.signingKeyPath.length > 0 && (await exists(path.resolve(deps.signingKeyPath)));
+}
+
 function sealActivity(deps: ScanActivityDeps): SealEvidenceActivity {
+  const seal = sealBundleActivity(deps);
+  return async (input) => {
+    const result = await seal(input);
+    return { ...result, signatureRequired: await signatureRequired(deps) };
+  };
+}
+
+function sealBundleActivity(deps: ScanActivityDeps): (input: SealEvidenceActivityInput) => Promise<SealEvidenceResult> {
   return async (input) => {
     const run = trustedRunOnly(input?.run, deps.tmpRoot);
     validateRepoUrl(input.repoUrl);
@@ -221,6 +262,43 @@ function sealActivity(deps: ScanActivityDeps): SealEvidenceActivity {
   };
 }
 
+function unsignedResult(required: boolean, detail?: string): SignEvidenceResult {
+  return detail === undefined ? { signed: false, required, level: 0 } : { signed: false, required, level: 0, detail };
+}
+
+function signFailureDetail(error: unknown): string {
+  const message = error instanceof Error ? error.message : '';
+  return message.startsWith(SIGN_PREFIX) ? message : 'evidence sign: the bundle could not be signed';
+}
+
+function signActivity(deps: ScanActivityDeps): SignEvidenceActivity {
+  return async (input) => {
+    const run = trustedRunOnly(input?.run, deps.tmpRoot);
+    if (typeof input.rootHash !== 'string' || !HEX64.test(input.rootHash)) throw invalidRun('invalid root hash');
+    const bundleDir = path.join(evidenceRootFor('sign', deps, run), run.runId);
+    const configured = typeof deps.signingKeyPath === 'string' && deps.signingKeyPath.length > 0 ? path.resolve(deps.signingKeyPath) : null;
+    const keyPresent = configured !== null && (await exists(configured));
+    if (configured === null || !keyPresent) {
+      return deps.requireSignature === true ? unsignedResult(true, 'no signing key is configured') : unsignedResult(false);
+    }
+    try {
+      if (!(await exists(path.join(bundleDir, 'signature.json')))) {
+        await signEvidenceBundle({ bundleDir, keyPath: configured, evidenceRoot: deps.evidenceRoot, clock: deps.clock });
+      }
+      const hashes = await verifyEvidenceBundle(bundleDir, { expectRootHash: input.rootHash });
+      const sig = await verifyBundleSignature(bundleDir, { trustedKeys: [`${configured}.pub`] });
+      const level = computeAssuranceLevel(hashes.hashesOk, sig);
+      const result: SignEvidenceResult = { signed: sig.status !== 'unsigned', required: true, level };
+      if (sig.keyId !== null) result.keyId = sig.keyId;
+      if (sig.signedAt !== null) result.signedAt = sig.signedAt;
+      if (level !== 1) result.detail = hashes.hashesOk ? `signature ${sig.status} against ${configured}.pub` : 'evidence bundle does not verify';
+      return result;
+    } catch (error) {
+      return unsignedResult(true, signFailureDetail(error));
+    }
+  };
+}
+
 export function createScanActivities(deps: ScanActivityDeps): ScanActivities {
   return {
     runGitleaks: scanActivity('gitleaks', runGitleaksScan, deps),
@@ -228,5 +306,6 @@ export function createScanActivities(deps: ScanActivityDeps): ScanActivities {
     runNpmAudit: scanActivity('npm-audit', runNpmAuditScan, deps),
     runLicenseCheck: scanActivity('license-check', runLicenseScan, deps),
     sealEvidence: sealActivity(deps),
+    signEvidence: signActivity(deps),
   };
 }

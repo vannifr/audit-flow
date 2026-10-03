@@ -28,7 +28,8 @@ export type StatusCause =
   | 'not-applicable'
   | 'source-unavailable'
   | 'activity-failed'
-  | 'network';
+  | 'network'
+  | 'unsigned';
 
 export interface ScannerStatusEntry {
   scanner: ScannerId;
@@ -57,9 +58,16 @@ export interface OutcomeDecision {
   completedScanners: ScannerId[];
 }
 
+export interface EvidenceSignatureState {
+  required: boolean;
+  level: 0 | 1;
+  detail?: string;
+}
+
 export interface ComputeOutcomeInput {
   scanners: ScannerStatusEntry[];
   untracedFindingIds: string[];
+  evidenceSignature?: EvidenceSignatureState;
 }
 
 export type ComputeOutcome = (input: ComputeOutcomeInput) => OutcomeDecision;
@@ -103,6 +111,16 @@ export function computeOutcome(input: ComputeOutcomeInput): OutcomeDecision {
       scanner: 'evidence',
       status: 'untraced-findings',
       summary: `${untracedCount} finding(s) could not be traced to an evidence record.`,
+    });
+  }
+  const signature = input.evidenceSignature;
+  if (signature !== undefined && signature.required && signature.level !== 1) {
+    const detail = typeof signature.detail === 'string' && signature.detail.length > 0 ? ` (${signature.detail})` : '';
+    notPerformed.push({
+      scanner: 'evidence',
+      status: 'unavailable',
+      cause: 'unsigned',
+      summary: `A signature over the evidence manifest is required but no valid signature was made${detail}.`,
     });
   }
   return {

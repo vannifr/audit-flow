@@ -251,3 +251,72 @@ describe('report evidence section (FR-017, R9)', () => {
     expect(report).not.toContain('Integrity:');
   });
 });
+
+describe('report signature and assurance level (FR-020, TS-034)', () => {
+  const ROOT = '0123456789abcdef'.repeat(4);
+  const BUNDLE = '/var/lib/tessera/evidence/run-1';
+  const KEY = 'ab'.repeat(32);
+  const AT = '2026-03-01T12:05:00.000Z';
+  const base = { outcome: 'complete', notPerformed: [], scanners: ALL_COMPLETED, evidence: { bundlePath: BUNDLE, rootHash: ROOT } };
+
+  it('states what was signed, by which key, that the time is not attested, and level 1 for a valid signature', async () => {
+    const lines = (await render({ ...base, signature: { signed: true, keyId: KEY, signedAt: AT, level: 1 } })).split('\n');
+    const integrity = lines.indexOf('Integrity: hashes and a signed manifest');
+    expect(integrity).toBeGreaterThan(0);
+    expect(lines.slice(integrity + 1, integrity + 4)).toEqual([
+      `Signature: valid, key ${KEY}, signed ${AT} (signing time is not independently attested)`,
+      'Signed: manifest.json (run id, root hash and the sha256 of the manifest bytes) with Ed25519',
+      'Assurance level: 1',
+    ]);
+    expect(lines).not.toContain('Integrity: hashes only; the manifest is not signed');
+  });
+
+  it('says Signature: none and level 0 without a signature', async () => {
+    const lines = (await render({ ...base, signature: { signed: false, level: 0 } })).split('\n');
+    expect(lines).toContain('Integrity: hashes only; the manifest is not signed');
+    expect(lines).toContain('Signature: none');
+    expect(lines).toContain('Assurance level: 0');
+    expect(lines.join('\n')).not.toMatch(/Assurance level: [1-9]/);
+  });
+
+  it('never shows a valid signature or level 1 for an inconsistent claim', async () => {
+    for (const signature of [
+      { signed: true, keyId: KEY, signedAt: AT, level: 0 },
+      { signed: false, keyId: KEY, signedAt: AT, level: 1 },
+      { signed: true, signedAt: AT, level: 1 },
+      { signed: true, keyId: 'not-hex', signedAt: AT, level: 1 },
+      { signed: true, keyId: KEY, level: 1 },
+    ]) {
+      const text = await render({ ...base, signature });
+      expect(text).not.toContain('Signature: valid');
+      expect(text).toContain('Assurance level: 0');
+      expect(text).toContain('Integrity: hashes only; the manifest is not signed');
+    }
+    expect(await render({ ...base, signature: { signed: true, keyId: KEY, signedAt: AT, level: 0 } })).toContain(
+      'Signature: present but not valid for the signing key',
+    );
+  });
+});
+
+describe('report product name', () => {
+  const saved = process.env.TESSERA_PRODUCT_NAME;
+
+  afterEach(() => {
+    if (saved === undefined) delete process.env.TESSERA_PRODUCT_NAME;
+    else process.env.TESSERA_PRODUCT_NAME = saved;
+  });
+
+  it('puts Tessera in the title by default', async () => {
+    delete process.env.TESSERA_PRODUCT_NAME;
+    expect((await render({})).split('\n')).toContain('# Audit Report (Tessera)');
+  });
+
+  it('uses TESSERA_PRODUCT_NAME in the title only and strips markup and line breaks', async () => {
+    process.env.TESSERA_PRODUCT_NAME = 'Acme\n# Audit|Kit';
+    const report = await render({});
+    expect(report.split('\n')).toContain('# Audit Report (Acme Audit Kit)');
+    expect(report.match(/Acme/g)).toHaveLength(1);
+    process.env.TESSERA_PRODUCT_NAME = '   ';
+    expect((await render({})).split('\n')).toContain('# Audit Report (Tessera)');
+  });
+});

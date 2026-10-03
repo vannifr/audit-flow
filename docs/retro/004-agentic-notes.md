@@ -44,3 +44,4 @@ Start of the slice: 2026-10-03 13:48 (timebox: one working day).
 - Output of the day so far: US1 complete (17 of 17 scenarios), demo strict recall 6 of 18 to 8 of 18, severity-correct 3 to 5, false positives on clean-app 1 to 0.
 - An automated security plugin flagged a "fail-open" line that did not exist in the code (the line already mapped ENOENT to `unavailable`): automatic findings also need verification before acting.
 - Process deviation: one Sonnet agent wrote test and code together and did not show the red step; mutation testing still passed, but the TDD evidence is missing for that task.
+- The automated security-review plugin twice reported code that did not exist (an ENOENT mapped to `completed` in run-tool.ts; a loop over an empty array in sign.ts). Both were checked against the file and were false. Rule: an automatic finding is a lead, not a fact; verify the line before acting, and keep the mutation tests that already prove the control works.

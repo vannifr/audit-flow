@@ -1,11 +1,19 @@
 import type { AuditOutcome, NotPerformed, ScannerStatusEntry } from '../scan/status';
 
+export interface ReportSignature {
+  signed: boolean;
+  keyId?: string;
+  signedAt?: string;
+  level: 0 | 1;
+}
+
 export interface OutcomeBlockInput {
   outcome?: AuditOutcome;
   notPerformed?: NotPerformed[];
   scanners?: ScannerStatusEntry[];
   revision?: string | null;
   evidence?: { bundlePath: string; rootHash: string };
+  signature?: ReportSignature;
   findingCount: number;
 }
 
@@ -33,15 +41,40 @@ function shellArg(value: string): string {
   return /^[A-Za-z0-9._/:=+-]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
-function evidenceLines(evidence: { bundlePath: string; rootHash: string }): string[] {
+function validSignature(signature: ReportSignature | undefined): signature is ReportSignature & { keyId: string; signedAt: string } {
+  return (
+    signature !== undefined &&
+    signature.signed === true &&
+    signature.level === 1 &&
+    typeof signature.keyId === 'string' &&
+    /^[0-9a-f]{64}$/.test(signature.keyId) &&
+    typeof signature.signedAt === 'string'
+  );
+}
+
+function signatureLines(signature: ReportSignature): string[] {
+  if (validSignature(signature)) {
+    return [
+      `Signature: valid, key ${signature.keyId}, signed ${cell(signature.signedAt)} (signing time is not independently attested)`,
+      'Signed: manifest.json (run id, root hash and the sha256 of the manifest bytes) with Ed25519',
+      'Assurance level: 1',
+    ];
+  }
+  const line = signature.signed === true ? 'Signature: present but not valid for the signing key' : 'Signature: none';
+  return [line, 'Assurance level: 0'];
+}
+
+function evidenceLines(evidence: { bundlePath: string; rootHash: string }, signature: ReportSignature | undefined): string[] {
   const bundle = cell(evidence.bundlePath);
   const root = cell(evidence.rootHash);
+  const signed = validSignature(signature);
   return [
     `Evidence bundle: ${bundle}`,
     `Evidence root hash: ${root}`,
     `Verify: npm run evidence:verify -- ${shellArg(bundle)} --expect-root ${shellArg(root)}`,
     'Without Tessera, `sha256sum -c SHA256SUMS` in the bundle folder detects only changed or missing files; added files, the hash chain and the root hash need the verify command.',
-    'Integrity: hashes only; the manifest is not signed',
+    signed ? 'Integrity: hashes and a signed manifest' : 'Integrity: hashes only; the manifest is not signed',
+    ...(signature === undefined ? [] : signatureLines(signature)),
     '',
   ];
 }
@@ -79,7 +112,7 @@ export function renderOutcomeBlock(input: OutcomeBlockInput): string {
     lines.push(`Source revision: ${cell(input.revision)}`, '');
   }
 
-  if (input.evidence !== undefined) lines.push(...evidenceLines(input.evidence));
+  if (input.evidence !== undefined) lines.push(...evidenceLines(input.evidence, input.signature));
 
   return `${lines.join('\n')}\n`;
 }

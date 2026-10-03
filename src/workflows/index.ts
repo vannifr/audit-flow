@@ -46,6 +46,7 @@ const {
   generateReport,
   cleanupRun,
   sealEvidence,
+  signEvidence,
 } = proxyActivities<typeof activities>({
   startToCloseTimeout: '1 hour',
   retry: {
@@ -117,6 +118,8 @@ export async function applicationAudit(input: AuditInput): Promise<AuditResult> 
   let sealSource: FetchedSource | null = null;
   let sealAttempted = false;
   let sourceRecordIds: string[] = [];
+  let signature: SignatureState | undefined;
+  let signatureRequired = false;
 
   const seal = async (usedRecordIds: string[]): Promise<EvidenceSummary> => {
     if (sealed !== undefined) return sealed;
@@ -127,15 +130,32 @@ export async function applicationAudit(input: AuditInput): Promise<AuditResult> 
       throw ApplicationFailure.create({ type: 'EvidenceSealError', message: 'Evidence bundle failed its self-verification', nonRetryable: true });
     }
     sealed = { bundlePath: result.bundlePath, rootHash: result.rootHash, recordCount: result.recordCount };
+    signatureRequired = result.signatureRequired === true;
     return sealed;
   };
 
-  const sealBestEffort = async (usedRecordIds: string[]): Promise<EvidenceSummary | undefined> => {
+  const sign = async (evidence: EvidenceSummary): Promise<SignatureState> => {
+    if (signature !== undefined) return signature;
+    if (run === undefined) throw new Error('no audit run to sign');
     try {
-      return await seal(usedRecordIds);
+      const state = signatureState(await signEvidence({ run, rootHash: evidence.rootHash }));
+      signature = { ...state, required: state.required || signatureRequired };
+    } catch (error) {
+      if (isCancellation(error)) throw error;
+      signature = { signed: false, required: signatureRequired, level: 0, detail: `signing activity failed (${failureType(error)})` };
+    }
+    return signature;
+  };
+
+  const sealBestEffort = async (usedRecordIds: string[]): Promise<EvidenceSummary | undefined> => {
+    let evidence: EvidenceSummary;
+    try {
+      evidence = await seal(usedRecordIds);
     } catch {
       return undefined;
     }
+    await sign(evidence);
+    return evidence;
   };
 
   const removeWorkDir = async (): Promise<void> => {
@@ -208,13 +228,14 @@ export async function applicationAudit(input: AuditInput): Promise<AuditResult> 
 
     const scanners = [...settled.map((s) => s.entry), review.entry];
     const recordIds = new Set(scanners.flatMap((s) => s.evidenceRecordIds));
-    const decision = computeOutcome({
+    const baseDecisionInput = {
       scanners,
       untracedFindingIds: scanFindings.filter((f) => !traced(f, recordIds)).map((f) => f.id),
-    });
+    };
+    const baseDecision = computeOutcome(baseDecisionInput);
     state.scanners = scanners;
-    state.outcome = decision.outcome;
-    state.notPerformed = decision.notPerformed;
+    state.outcome = baseDecision.outcome;
+    state.notPerformed = baseDecision.notPerformed;
     state.findings = [...scanFindings, ...review.findings];
 
     const evidence = await seal([
@@ -222,6 +243,15 @@ export async function applicationAudit(input: AuditInput): Promise<AuditResult> 
       ...scanners.flatMap((s) => s.evidenceRecordIds),
       ...state.findings.map((f) => f as ScanFinding).filter((f) => traced(f, recordIds)).map((f) => f.evidenceRef?.recordId ?? ''),
     ]);
+    const signed = await sign(evidence);
+    const decision = computeOutcome({
+      scanners,
+      untracedFindingIds: baseDecisionInput.untracedFindingIds,
+      evidenceSignature: { required: signed.required, level: signed.level, ...(signed.detail === undefined ? {} : { detail: signed.detail }) },
+    });
+    state.outcome = decision.outcome;
+    state.notPerformed = decision.notPerformed;
+    const signatureSummary = publicSignature(signed);
 
     // ==================== FASE 3: COMPLIANCE MAPPING ====================
     state.currentPhase = 'compliance';
@@ -288,6 +318,7 @@ export async function applicationAudit(input: AuditInput): Promise<AuditResult> 
       scanners,
       revision: source.revision,
       evidence: { bundlePath: evidence.bundlePath, rootHash: evidence.rootHash },
+      signature: signatureSummary,
     });
 
     state.currentPhase = 'completed';
@@ -308,6 +339,7 @@ export async function applicationAudit(input: AuditInput): Promise<AuditResult> 
       source: { repoUrl: input.repoUrl, revision: source.revision },
       reviewAdvice,
       evidence,
+      signature: signatureSummary,
     };
   } catch (error) {
     state.currentPhase = 'failed';
@@ -329,6 +361,37 @@ interface EvidenceSummary {
   bundlePath: string;
   rootHash: string;
   recordCount: number;
+}
+
+interface SignatureState {
+  signed: boolean;
+  required: boolean;
+  keyId?: string;
+  signedAt?: string;
+  level: 0 | 1;
+  detail?: string;
+}
+
+function signatureState(result: unknown): SignatureState {
+  const r = (typeof result === 'object' && result !== null ? result : {}) as Record<string, unknown>;
+  const required = r.required === true;
+  const signed = r.signed === true;
+  const keyId = typeof r.keyId === 'string' && /^[0-9a-f]{64}$/.test(r.keyId) ? r.keyId : undefined;
+  const signedAt = typeof r.signedAt === 'string' ? r.signedAt : undefined;
+  const level: 0 | 1 = r.level === 1 && signed && keyId !== undefined ? 1 : 0;
+  const state: SignatureState = { signed, required, level };
+  if (keyId !== undefined) state.keyId = keyId;
+  if (signedAt !== undefined) state.signedAt = signedAt;
+  if (typeof r.detail === 'string') state.detail = r.detail;
+  else if (r.level === 1 && level === 0) state.detail = 'signing activity returned an inconsistent result';
+  return state;
+}
+
+function publicSignature(s: SignatureState): NonNullable<AuditResult['signature']> {
+  const out: NonNullable<AuditResult['signature']> = { signed: s.signed, level: s.level };
+  if (s.keyId !== undefined) out.keyId = s.keyId;
+  if (s.signedAt !== undefined) out.signedAt = s.signedAt;
+  return out;
 }
 
 function unique(ids: string[]): string[] {

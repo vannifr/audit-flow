@@ -6,9 +6,12 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { sha256Hex } from './hash';
 import type { EvidenceManifest, EvidenceRecord, ManifestEntry, Sha256Hex } from './types';
+import { SIGNATURE_FILE, verifyBundleSignature } from './sign';
+import type { SignatureReport } from './sign';
 
 export interface VerifyOptions {
   expectRootHash?: string;
+  trustedKeys?: string[];
 }
 
 export interface VerifyIssue {
@@ -27,6 +30,8 @@ export interface VerifyReport {
   rootMatches: boolean | null;
   checkedEntries: number;
   issues: VerifyIssue[];
+  hashesOk: boolean;
+  signature: SignatureReport;
 }
 
 export interface EvidenceTrace {
@@ -274,6 +279,8 @@ export async function verifyEvidenceBundle(bundleDir: string, opts: VerifyOption
   await assertBundleDir(bundleDir);
   const expectRoot = typeof opts.expectRootHash === 'string' ? opts.expectRootHash.trim().toLowerCase() : undefined;
   const manifest = await readManifest(bundleDir);
+  const signature = await verifyBundleSignature(bundleDir, { trustedKeys: Array.isArray(opts.trustedKeys) ? opts.trustedKeys : [] });
+  const signatureOk = opts.trustedKeys === undefined || signature.status === 'valid';
   if (manifest === null) {
     return {
       ok: false,
@@ -284,6 +291,8 @@ export async function verifyEvidenceBundle(bundleDir: string, opts: VerifyOption
       rootMatches: expectRoot === undefined ? null : false,
       checkedEntries: 0,
       issues: [{ path: MANIFEST_FILE, problem: 'invalid-record' }],
+      hashesOk: false,
+      signature,
     };
   }
 
@@ -295,6 +304,7 @@ export async function verifyEvidenceBundle(bundleDir: string, opts: VerifyOption
 
   const { nodes, emptyDirs } = await walkBundle(bundleDir);
   const expected = new Set<string>([MANIFEST_FILE, SUMS_FILE]);
+  if (nodes.get(SIGNATURE_FILE) === 'file') expected.add(SIGNATURE_FILE);
   for (const e of manifest.entries) expected.add(e.path);
   for (const a of manifest.abandoned) expected.add(a.path);
 
@@ -359,8 +369,9 @@ export async function verifyEvidenceBundle(bundleDir: string, opts: VerifyOption
 
   const rootMatches = expectRoot === undefined ? null : expectRoot === head;
   const sorted = [...issues.values()].sort((a, b) => compareBytes(a.path, b.path));
+  const hashesOk = sorted.length === 0 && rootMatches !== false;
   return {
-    ok: sorted.length === 0 && rootMatches !== false,
+    ok: hashesOk && signatureOk,
     bundlePath: bundleDir,
     runId: manifest.runId,
     rootHash: head,
@@ -368,6 +379,8 @@ export async function verifyEvidenceBundle(bundleDir: string, opts: VerifyOption
     rootMatches,
     checkedEntries: manifest.entries.length,
     issues: sorted,
+    hashesOk,
+    signature,
   };
 }
 

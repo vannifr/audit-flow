@@ -117,6 +117,7 @@ function baseline(): Record<string, Fn> {
     generateReport: vi.fn(async () => ({ reportPath: '/out/audit-report.md', evidencePath: '/out/evidence' })),
     cleanupRun: vi.fn(async () => undefined),
     sealEvidence: vi.fn(async () => SEALED),
+    signEvidence: vi.fn(async () => ({ signed: false, required: false, level: 0 })),
   };
 }
 
@@ -453,7 +454,7 @@ describe('applicationAudit result shape', () => {
   it('extends AuditResult additively and keeps raw output out of it', async () => {
     const result: AuditResult = await applicationAudit(INPUT);
     expect(Object.keys(result).sort()).toEqual(
-      ['complianceMap', 'duration', 'endTime', 'evidence', 'evidencePath', 'findings', 'notPerformed', 'outcome', 'reportPath', 'reviewAdvice', 'scanners', 'source', 'startTime', 'status'].sort(),
+      ['complianceMap', 'duration', 'endTime', 'evidence', 'evidencePath', 'findings', 'notPerformed', 'outcome', 'reportPath', 'reviewAdvice', 'scanners', 'signature', 'source', 'startTime', 'status'].sort(),
     );
   });
 });
@@ -667,5 +668,148 @@ describe('applicationAudit evidence seal (FR-009, FR-017)', () => {
     });
     expect(await rejection(applicationAudit(INPUT))).toBe(cancelled);
     expect(act('sealEvidence')).not.toHaveBeenCalled();
+  });
+});
+
+describe('applicationAudit evidence signature (FR-018, FR-020, TS-034, TS-036)', () => {
+  const KEY = '7'.repeat(64);
+  const SIGNED_AT = '2026-03-01T12:05:00.000Z';
+
+  it('signs right after the seal, before compliance and the report, and passes the signature on', async () => {
+    harness.activities.signEvidence = vi.fn(async () => ({ signed: true, required: true, keyId: KEY, signedAt: SIGNED_AT, level: 1 }));
+
+    const result = await applicationAudit(INPUT);
+
+    expect(act('signEvidence')).toHaveBeenCalledTimes(1);
+    expect(act('signEvidence').mock.calls[0][0]).toEqual({ run: RUN, rootHash: SEALED.rootHash });
+    const order = harness.calls;
+    expect(order.indexOf('sealEvidence')).toBeLessThan(order.indexOf('signEvidence'));
+    expect(order.indexOf('signEvidence')).toBeLessThan(order.indexOf('mapToCompliance'));
+    expect(result.outcome).toBe('complete');
+    expect(result.signature).toEqual({ signed: true, keyId: KEY, signedAt: SIGNED_AT, level: 1 });
+    expect(reportInput().signature).toEqual({ signed: true, keyId: KEY, signedAt: SIGNED_AT, level: 1 });
+  });
+
+  it('keeps the audit complete with level 0 when no key is configured and none is required', async () => {
+    const result = await applicationAudit(INPUT);
+
+    expect(result.outcome).toBe('complete');
+    expect(result.notPerformed).toEqual([]);
+    expect(result.signature).toEqual({ signed: false, level: 0 });
+    expect(reportInput().signature).toEqual({ signed: false, level: 0 });
+  });
+
+  it('TS-036 makes the audit incomplete when a signature is required but missing', async () => {
+    harness.activities.signEvidence = vi.fn(async () => ({ signed: false, required: true, level: 0, detail: 'no signing key is configured' }));
+
+    const result = await applicationAudit(INPUT);
+
+    expect(result.outcome).toBe('incomplete');
+    expect(result.notPerformed).toEqual([
+      expect.objectContaining({ scanner: 'evidence', status: 'unavailable', cause: 'unsigned' }),
+    ]);
+    expect(result.signature).toEqual({ signed: false, level: 0 });
+    expect(reportInput().outcome).toBe('incomplete');
+    expect(reportInput().notPerformed).toEqual(result.notPerformed);
+  });
+
+  it('makes the audit incomplete when a configured key produced no valid signature', async () => {
+    harness.activities.signEvidence = vi.fn(async () => ({ signed: true, required: true, keyId: KEY, signedAt: SIGNED_AT, level: 0, detail: 'signature invalid' }));
+
+    const result = await applicationAudit(INPUT);
+
+    expect(result.outcome).toBe('incomplete');
+    expect(result.notPerformed.map((n) => [n.scanner, n.cause])).toEqual([['evidence', 'unsigned']]);
+    expect(result.signature).toEqual({ signed: true, keyId: KEY, signedAt: SIGNED_AT, level: 0 });
+  });
+
+  it('never trusts a level 1 claim without a signature and a key id', async () => {
+    harness.activities.signEvidence = vi.fn(async () => ({ signed: false, required: true, level: 1 }));
+
+    const result = await applicationAudit(INPUT);
+
+    expect(result.signature?.level).toBe(0);
+    expect(result.outcome).toBe('incomplete');
+  });
+
+  it('records level 0 without failing the audit when the signing activity itself fails', async () => {
+    harness.activities.signEvidence = vi.fn(async () => {
+      throw activityFailure(new Error('worker lost'));
+    });
+
+    const result = await applicationAudit(INPUT);
+
+    expect(result.status).toBe('completed');
+    expect(result.outcome).toBe('complete');
+    expect(result.notPerformed).toEqual([]);
+    expect(result.signature).toEqual({ signed: false, level: 0 });
+    expect(reportInput().signature).toEqual({ signed: false, level: 0 });
+  });
+
+  it('TS-036 makes the audit incomplete when a signature is required and the signing activity throws after its retries', async () => {
+    harness.activities.sealEvidence = vi.fn(async () => ({ ...SEALED, signatureRequired: true }));
+    harness.activities.signEvidence = vi.fn(async () => {
+      throw activityFailure(new Error('worker lost'));
+    });
+
+    const result = await applicationAudit(INPUT);
+
+    expect(result.outcome).toBe('incomplete');
+    expect(result.notPerformed).toEqual([expect.objectContaining({ scanner: 'evidence', status: 'unavailable', cause: 'unsigned' })]);
+    expect(result.signature).toEqual({ signed: false, level: 0 });
+    expect(reportInput().outcome).toBe('incomplete');
+    expect(reportInput().signature).toEqual({ signed: false, level: 0 });
+  });
+
+  it('makes the audit incomplete when the seal says a signature is required and signing returns signed false', async () => {
+    harness.activities.sealEvidence = vi.fn(async () => ({ ...SEALED, signatureRequired: true }));
+    harness.activities.signEvidence = vi.fn(async () => ({ signed: false, required: false, level: 0 }));
+
+    const result = await applicationAudit(INPUT);
+
+    expect(result.outcome).toBe('incomplete');
+    expect(result.notPerformed.map((n) => [n.scanner, n.status, n.cause])).toEqual([['evidence', 'unavailable', 'unsigned']]);
+    expect(result.signature?.level).toBe(0);
+  });
+
+  it('keeps a required and validly signed audit complete at level 1', async () => {
+    harness.activities.sealEvidence = vi.fn(async () => ({ ...SEALED, signatureRequired: true }));
+    harness.activities.signEvidence = vi.fn(async () => ({ signed: true, required: true, keyId: KEY, signedAt: SIGNED_AT, level: 1 }));
+
+    const result = await applicationAudit(INPUT);
+
+    expect(result.outcome).toBe('complete');
+    expect(result.notPerformed).toEqual([]);
+    expect(result.signature).toEqual({ signed: true, keyId: KEY, signedAt: SIGNED_AT, level: 1 });
+  });
+
+  it('signs best-effort after the seal on a failure path', async () => {
+    harness.activities.fetchSource = vi.fn(async () => ({ ...SOURCE, evidenceRecordIds: ['source.clone.a1'] }));
+    harness.activities.detectTechStack = vi.fn(async () => ({ language: 'unknown', frameworks: [], hasPayments: false, hasPII: false, packageManager: 'other' }));
+
+    const failure = (await rejection(applicationAudit(INPUT))) as ApplicationFailure;
+
+    expect(failure.type).toBe('TechStackNotDetectedError');
+    expect(act('signEvidence')).toHaveBeenCalledTimes(1);
+    expect(harness.calls.indexOf('sealEvidence')).toBeLessThan(harness.calls.indexOf('signEvidence'));
+  });
+
+  it('does not sign when the seal failed', async () => {
+    harness.activities.sealEvidence = vi.fn(async () => {
+      throw activityFailure(new Error('disk full'));
+    });
+
+    await rejection(applicationAudit(INPUT));
+
+    expect(act('signEvidence')).not.toHaveBeenCalled();
+  });
+
+  it('propagates a cancellation during signing', async () => {
+    const cancelled = new CancelledFailure('cancelled');
+    harness.activities.signEvidence = vi.fn(async () => {
+      throw cancelled;
+    });
+
+    expect(await rejection(applicationAudit(INPUT))).toBe(cancelled);
   });
 });

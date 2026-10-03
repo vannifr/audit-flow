@@ -26,6 +26,7 @@ export interface AuditResult {
   source: { repoUrl: string; revision: string | null };
   reviewAdvice: ReviewAdvice[];
   evidence?: { bundlePath: string; rootHash: string; recordCount: number };
+  signature?: { signed: boolean; keyId?: string; signedAt?: string; level: 0 | 1 };
 }
 
 export type AuditStatus =

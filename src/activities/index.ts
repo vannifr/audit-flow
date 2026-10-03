@@ -23,11 +23,11 @@ import { defaultProcessRunner } from '../scan/process-runner';
 import { createEvidenceStore } from '../evidence/store';
 import { redactSecrets } from '../evidence/redact';
 import { renderOutcomeBlock } from '../report/outcome-block';
+import type { ReportSignature } from '../report/outcome-block';
 import { walkSourceFiles, readSourceFile } from '../scan/safe-walk';
 import { validateRepoUrl } from '../scan/repo-url';
 import { createScanActivities } from '../scan/activities';
-import type { ScanActivities, ScanActivity, SealEvidenceActivityInput } from '../scan/activities';
-import type { SealEvidenceResult } from '../evidence/manifest';
+import type { ScanActivities, ScanActivity, SealEvidenceActivityInput, SealEvidenceActivityResult, SignEvidenceActivityInput, SignEvidenceResult } from '../scan/activities';
 import type { AuditOutcome, NotPerformed, ScannerStatusEntry } from '../scan/status';
 import type {
   Finding,
@@ -438,6 +438,7 @@ export async function generateReport(input: {
   scanners?: ScannerStatusEntry[];
   revision?: string | null;
   evidence?: { bundlePath: string; rootHash: string };
+  signature?: ReportSignature;
 }): Promise<{ reportPath: string; evidencePath: string }> {
   const baseDir = input.outputDir || path.join('/tmp', `audit-${input.workflowId}`);
   const reportPath = path.join(baseDir, 'audit-report.md');
@@ -491,6 +492,15 @@ interface ReportInput {
   scanners?: ScannerStatusEntry[];
   revision?: string | null;
   evidence?: { bundlePath: string; rootHash: string };
+  signature?: ReportSignature;
+}
+
+function productName(): string {
+  const raw = Array.from(process.env.TESSERA_PRODUCT_NAME ?? '')
+    .map((c) => (c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127 || '|#`*_[]<>'.includes(c) ? ' ' : c))
+    .join('');
+  const configured = raw.replace(/\s+/g, ' ').trim().slice(0, 64);
+  return configured.length > 0 ? configured : 'Tessera';
 }
 
 function generateMarkdownReport(input: ReportInput): string {
@@ -515,11 +525,12 @@ function generateMarkdownReport(input: ReportInput): string {
     scanners: input.scanners,
     revision: input.revision,
     evidence: input.evidence,
+    signature: input.signature,
     findingCount: input.findings.length,
   });
 
   const report = `${outcomeBlock}
-# Audit Report
+# Audit Report (${productName()})
 
 **Repository:** ${input.repoUrl}
 **Workflow ID:** ${input.workflowId}
@@ -2603,6 +2614,13 @@ function evidenceRoot(): string {
     : path.join(os.homedir(), '.local', 'share', 'tessera', 'evidence');
 }
 
+function signingKeyPath(): string {
+  const configured = process.env.TESSERA_SIGNING_KEY;
+  return configured !== undefined && configured.length > 0
+    ? configured
+    : path.join(os.homedir(), '.config', 'tessera', 'signing', 'ed25519.pem');
+}
+
 function frameworkVersion(): string {
   try {
     const pkg = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', 'package.json'), 'utf8')) as { version?: unknown };
@@ -2689,16 +2707,26 @@ function workerScanActivities(): ScanActivities {
     frameworkVersion: frameworkVersion(),
     workerEnv: process.env,
     configDir: path.resolve(__dirname, '..', '..', 'config', 'scanners'),
+    signingKeyPath: signingKeyPath(),
+    requireSignature: process.env.TESSERA_REQUIRE_SIGNATURE === '1',
   });
 }
 
-function scanActivity(name: Exclude<keyof ScanActivities, 'sealEvidence'>): ScanActivity {
+function scanActivity(name: Exclude<keyof ScanActivities, 'sealEvidence' | 'signEvidence'>): ScanActivity {
   return (run, source, repoUrl) => workerScanActivities()[name](run, source, repoUrl);
 }
 
-export async function sealEvidence(input: SealEvidenceActivityInput): Promise<SealEvidenceResult> {
+export async function sealEvidence(input: SealEvidenceActivityInput): Promise<SealEvidenceActivityResult> {
   const result = await workerScanActivities().sealEvidence(input);
   logger.info({ runId: input?.run?.runId, rootHash: result.rootHash, recordCount: result.recordCount }, 'Evidence bundle sealed');
+  return result;
+}
+
+export async function signEvidence(input: SignEvidenceActivityInput): Promise<SignEvidenceResult> {
+  const result = await workerScanActivities().signEvidence(input);
+  const log = { runId: input?.run?.runId, signed: result.signed, required: result.required, keyId: result.keyId ?? null, level: result.level, detail: result.detail ?? null };
+  if (result.level === 1 || !result.required) logger.info(log, 'Evidence signature step finished');
+  else logger.warn(log, 'Evidence bundle has no valid signature');
   return result;
 }
 

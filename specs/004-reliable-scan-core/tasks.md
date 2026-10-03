@@ -150,11 +150,11 @@ each marked `superseded by FR-xxx` in the commit body. No adapters with the old 
 
 ## Phase 7: User Story 6 - Signed evidence (Priority: P2)
 
-- [ ] T035 [P] [US6] Write failing tests for signing and verification outcomes, key inside the evidence folder, missing key [TS-031, TS-032, TS-033, TS-035, TS-036] in `tests/unit/evidence/sign.test.ts`
+- [x] T035 [P] [US6] Write failing tests for signing and verification outcomes, key inside the evidence folder, missing key [TS-031, TS-032, TS-033, TS-035, TS-036] in `tests/unit/evidence/sign.test.ts`
   - Tier B. Consumes: `contracts/evidence-signature.ts`, R19.
-- [ ] T036 [US6] Implement `src/evidence/sign.ts`, `src/cli/evidence-keygen.ts`, `signature.json`, and extend `verify.ts` with signature status to pass [TS-031, TS-032, TS-033, TS-035, TS-036]
+- [x] T036 [US6] Implement `src/evidence/sign.ts`, `src/cli/evidence-keygen.ts`, `signature.json`, and extend `verify.ts` with signature status to pass [TS-031, TS-032, TS-033, TS-035, TS-036]
   - Tier C (key handling). Files: `src/evidence/sign.ts`, `src/cli/evidence-keygen.ts`, `src/evidence/verify.ts`. Rule: key outside `TESSERA_EVIDENCE_ROOT`, 0600, never logged or put in history.
-- [ ] T037 [US6] Add computed assurance level, signing time disclaimer and `TESSERA_REQUIRE_SIGNATURE` handling to workflow result and report [TS-034, TS-036]; make the product name configurable (default Tessera) and the report language English with an optional Dutch setting
+- [x] T037 [US6] Add computed assurance level, signing time disclaimer and `TESSERA_REQUIRE_SIGNATURE` handling to workflow result and report [TS-034, TS-036]; make the product name configurable (default Tessera) and the report language English with an optional Dutch setting
   - Tier B. Files: `src/workflows/index.ts`, `src/scan/report.ts`, `src/config.ts`.
 - [ ] T038 [US6] Write step definitions for `signed-evidence.feature` and run them green [TS-031, TS-032, TS-033, TS-034, TS-035, TS-036]
   - Tier B.
