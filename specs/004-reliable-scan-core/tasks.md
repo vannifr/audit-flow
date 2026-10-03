@@ -128,7 +128,7 @@ each marked `superseded by FR-xxx` in the commit body. No adapters with the old 
 **Goal**: vulnerable dependencies appear as findings; the demo proves the gain.
 **Independent test**: audit the demo; D05, D06, D07 are found.
 
-- [ ] T029 [US3] Migrate `runNpmAudit` to `runTool` in an isolated directory with only `package.json` and the lockfile; exit 1 with valid JSON is completed to pass [TS-021, TS-022] in `src/scan/tools/npm-audit.ts`
+- [x] T029 [US3] Migrate `runNpmAudit` to `runTool` in an isolated directory with only `package.json` and the lockfile; exit 1 with valid JSON is completed to pass [TS-021, TS-022] in `src/scan/tools/npm-audit.ts`
   - Tier B. Consumes: R3, R5. Produces: dependency findings with severity and package. Supersedes old npm audit tests ("error gives zero findings").
 - [ ] T030 [P] [US3] Extend `demo/run-demo.js` with the release gate: D05, D06, D07 present, strict recall at least 8 of 18, clean-app `complete`, `evidence:verify` exit 0, planted secrets absent from bundle, report and log [TS-023]; `demo/EXPECTED.md` stays unchanged
   - Tier B. Files: `demo/run-demo.js`. Rule: never edit expected values to turn the run green.
