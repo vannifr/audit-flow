@@ -88,9 +88,9 @@ each marked `superseded by FR-xxx` in the commit body. No adapters with the old 
 **Independent test**: remove one scanner; the report is INCOMPLETE and names it.
 **Checkpoint**: demo with one scanner removed shows INCOMPLETE; release tag `v0.2.0`.
 
-- [ ] T017 [P] [US1] Write failing policy tests per tool using the recorded fixtures [TS-002, TS-004, TS-005, TS-009, TS-010] in `tests/unit/scan/policies.test.ts`
+- [x] T017 [P] [US1] Write failing policy tests per tool using the recorded fixtures [TS-002, TS-004, TS-005, TS-009, TS-010] in `tests/unit/scan/policies.test.ts`
   - Tier B. Consumes: T002, R3. Produces: red tests for exit-code policies (gitleaks 42, semgrep crash, npm exit 1 with JSON).
-- [ ] T018 [US1] Migrate `runGitleaks` to `runTool` with framework config, `--exit-code 42`, `--redact`, `--ignore-gitleaks-allow` to pass [TS-002, TS-004, TS-005] in `src/activities/index.ts` and `src/scan/tools/gitleaks.ts`
+- [x] T018 [US1] Migrate `runGitleaks` to `runTool` with framework config, `--exit-code 42`, `--redact`, `--ignore-gitleaks-allow` to pass [TS-002, TS-004, TS-005] in `src/activities/index.ts` and `src/scan/tools/gitleaks.ts`
   - Tier B. Consumes: T013. Produces: `ScanStepResult` for gitleaks. Supersedes old gitleaks tests.
 - [ ] T019 [US1] Migrate `runSemgrep` to `runTool` with `--metrics=off`, packs `p/javascript` and `p/nodejs`, `--disable-nosem`, `EIO_BACKEND=posix`, crash classified as failed to pass [TS-002, TS-005, TS-010] in `src/scan/tools/semgrep.ts`
   - Tier B. Consumes: T013, research R6. Produces: `ScanStepResult` for semgrep. Supersedes old semgrep tests.
