@@ -398,7 +398,7 @@ export const runLicenseScan: ScanStep = async (ctx: ScanContext): Promise<ScanSt
   for (const f of findings) f.evidenceRef = evidence;
   const entry: ScannerStatusEntry = {
     scanner: 'license-check',
-    required: true,
+    required: cause !== 'not-applicable',
     status,
     heuristic: false,
     toolVersion: null,

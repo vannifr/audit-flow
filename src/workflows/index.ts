@@ -8,6 +8,9 @@ import {
   proxyActivities,
   sleep,
   workflowInfo,
+  ActivityFailure,
+  ApplicationFailure,
+  isCancellation,
 } from '@temporalio/workflow';
 import type * as activities from '../activities';
 import type {
@@ -21,11 +24,15 @@ import type {
   ComplianceMap,
   ReviewResult,
 } from '../types';
+import type { AuditRun, FetchedSource } from '../scan/lifecycle';
+import type { ScanFinding, ScanStepResult } from '../scan/scan-types';
+import { computeOutcome } from '../scan/status';
+import type { NotPerformed, ScannerId, ScannerStatusEntry } from '../scan/status';
 
 // Import activities
 const {
-  checkToolRequirements,
-  cloneRepository,
+  initAuditRun,
+  fetchSource,
   detectTechStack,
   generateScopeDocument,
   runNpmAudit,
@@ -36,14 +43,14 @@ const {
   mapToCompliance,
   crossValidate,
   generateReport,
-  cleanup,
+  cleanupRun,
 } = proxyActivities<typeof activities>({
   startToCloseTimeout: '1 hour',
   retry: {
     initialInterval: '10 seconds',
     maximumInterval: '5 minutes',
     maximumAttempts: 3,
-    nonRetryableErrorTypes: ['InvalidRepoError', 'ValidationError'],
+    nonRetryableErrorTypes: ['InvalidRepoError', 'ValidationError', 'InvalidRunError', 'SourceUnavailableError'],
   },
 });
 
@@ -55,6 +62,22 @@ export const scopeChangeSignal = defineSignal<[ScopeDocument]>('scope-change');
 export const statusQuery = defineQuery<AuditStatus>('status');
 export const findingsQuery = defineQuery<Finding[]>('findings');
 export const stateQuery = defineQuery<AuditState>('state');
+
+type ScanActivity = (run: AuditRun, source: FetchedSource, repoUrl: string) => Promise<ScanStepResult>;
+
+interface SettledScan {
+  entry: ScannerStatusEntry;
+  findings: ScanFinding[];
+}
+
+const ALWAYS_REQUIRED: ReadonlySet<ScannerId> = new Set<ScannerId>(['gitleaks', 'semgrep']);
+
+const SCANS: readonly (readonly [ScannerId, ScanActivity])[] = [
+  ['gitleaks', runGitleaks],
+  ['semgrep', runSemgrep],
+  ['npm-audit', runNpmAudit],
+  ['license-check', runLicenseCheck],
+];
 
 // Workflow definition
 export async function applicationAudit(input: AuditInput): Promise<AuditResult> {
@@ -68,6 +91,7 @@ export async function applicationAudit(input: AuditInput): Promise<AuditResult> 
     techStack: null,
     scope: null,
     p0Approved: false,
+    scanners: [],
   };
 
   // Set up signal and query handlers
@@ -85,25 +109,32 @@ export async function applicationAudit(input: AuditInput): Promise<AuditResult> 
 
   setHandler(stateQuery, () => state);
 
+  let run: AuditRun | undefined;
+  let cleaned = false;
+
+  const removeWorkDir = async (): Promise<void> => {
+    if (run === undefined || cleaned) return;
+    cleaned = true;
+    await cleanupRun(run);
+  };
+
   try {
-    // ==================== FASE 0: TOOL CHECK ====================
     state.currentPhase = 'discovery';
 
-    // Check which tools are available
-    const toolStatus = await checkToolRequirements();
-    const missingRequired = toolStatus.filter(t => !t.installed && t.required);
+    run = await initAuditRun();
 
-    if (missingRequired.length > 0) {
-      const missing = missingRequired.map(t => `${t.name}: ${t.installCommand}`).join('; ');
-      throw new Error(`Required tools missing: ${missing}`);
+    let source: FetchedSource;
+    try {
+      source = await fetchSource(run, input.repoUrl);
+    } catch (error) {
+      if (isCancellation(error)) throw error;
+      const failure = sourceFailure(error);
+      state.outcome = 'incomplete';
+      state.notPerformed = (failure.details?.[0] as { notPerformed: NotPerformed[] }).notPerformed;
+      throw failure;
     }
-
-    // Log available tools
-    const available = toolStatus.filter(t => t.installed).map(t => t.name);
-    console.log(`Available tools: ${available.join(', ')}`);
-
-    // Clone repository
-    const repoPath = await cloneRepository(input.repoUrl, workflowId);
+    state.revision = source.revision;
+    const repoPath = source.repoDir;
 
     // Detect tech stack
     state.techStack = await detectTechStack(repoPath);
@@ -123,16 +154,12 @@ export async function applicationAudit(input: AuditInput): Promise<AuditResult> 
     // ==================== FASE 1: AUTOMATED SCANS ====================
     state.currentPhase = 'scanning';
 
-    // Run scans in parallel
-    const [deps, secrets, sast, licenses] = await Promise.all([
-      runNpmAudit(repoPath, workflowId),
-      runGitleaks(repoPath, workflowId),
-      runSemgrep(repoPath, workflowId),
-      runLicenseCheck(repoPath, workflowId),
-    ]);
-
-    // Merge findings
-    state.findings = [...deps, ...secrets, ...sast, ...licenses];
+    const activeRun = run;
+    const settled = await Promise.all(
+      SCANS.map(([scanner, scan]) => settle(scanner, scan(activeRun, source, input.repoUrl)))
+    );
+    const scanFindings = settled.flatMap((s) => s.findings);
+    state.findings = [...scanFindings];
 
     // ==================== FASE 2: CODE REVIEW ====================
     state.currentPhase = 'reviewing';
@@ -140,14 +167,20 @@ export async function applicationAudit(input: AuditInput): Promise<AuditResult> 
     // Identify critical paths based on tech stack
     const criticalPaths = identifyCriticalPaths(state.techStack);
 
-    // AI code review
-    const codeReviewFindings = await reviewCriticalPaths(
-      repoPath,
-      criticalPaths,
-      'OWASP-Top-10'
-    );
+    const review = await settleReview(reviewCriticalPaths(repoPath, criticalPaths, 'OWASP-Top-10'));
 
-    state.findings = [...state.findings, ...codeReviewFindings];
+    await removeWorkDir();
+
+    const scanners = [...settled.map((s) => s.entry), review.entry];
+    const recordIds = new Set(scanners.flatMap((s) => s.evidenceRecordIds));
+    const decision = computeOutcome({
+      scanners,
+      untracedFindingIds: scanFindings.filter((f) => !traced(f, recordIds)).map((f) => f.id),
+    });
+    state.scanners = scanners;
+    state.outcome = decision.outcome;
+    state.notPerformed = decision.notPerformed;
+    state.findings = [...scanFindings, ...review.findings];
 
     // ==================== FASE 3: COMPLIANCE MAPPING ====================
     state.currentPhase = 'compliance';
@@ -204,10 +237,10 @@ export async function applicationAudit(input: AuditInput): Promise<AuditResult> 
       complianceMaps,
       reviewResult,
       outputDir: input.outputDir,
+      outcome: decision.outcome,
+      notPerformed: decision.notPerformed,
+      scanners,
     });
-
-    // Cleanup temporary files
-    await cleanup(repoPath);
 
     state.currentPhase = 'completed';
     const endTime = new Date();
@@ -221,13 +254,105 @@ export async function applicationAudit(input: AuditInput): Promise<AuditResult> 
       duration: endTime.getTime() - startTime.getTime(),
       startTime,
       endTime,
+      outcome: decision.outcome,
+      notPerformed: decision.notPerformed,
+      scanners,
+      source: { repoUrl: input.repoUrl, revision: source.revision },
     };
   } catch (error) {
     state.currentPhase = 'failed';
     state.error = error instanceof Error ? error.message : String(error);
 
     throw error;
+  } finally {
+    await removeWorkDir().catch(() => undefined);
   }
+}
+
+function failureType(error: unknown): string {
+  const cause = error instanceof ActivityFailure ? error.cause : error;
+  return cause instanceof ApplicationFailure && typeof cause.type === 'string' ? cause.type : 'unknown';
+}
+
+function sourceFailure(error: unknown): ApplicationFailure {
+  const network = failureType(error) === 'SourceNetworkError';
+  const notPerformed: NotPerformed = {
+    scanner: 'source',
+    status: 'failed',
+    cause: network ? 'network' : 'source-unavailable',
+    summary: network
+      ? 'The source could not be fetched because of a network problem; no scanner ran.'
+      : 'The source could not be retrieved; no scanner ran.',
+  };
+  return ApplicationFailure.create({
+    type: network ? 'SourceNetworkError' : 'SourceUnavailableError',
+    message: `Audit not performed: ${notPerformed.summary}`,
+    nonRetryable: !network,
+    details: [{ outcome: 'incomplete', notPerformed: [notPerformed] }],
+    cause: error instanceof Error ? error : undefined,
+  });
+}
+
+function failedEntry(scanner: ScannerId, required: boolean, heuristic: boolean, detail: string): ScannerStatusEntry {
+  return {
+    scanner,
+    required,
+    status: 'failed',
+    cause: 'activity-failed',
+    causeDetail: detail,
+    heuristic,
+    toolVersion: null,
+    findingCount: 0,
+    evidenceRecordIds: [],
+  };
+}
+
+async function settle(scanner: ScannerId, pending: Promise<ScanStepResult>): Promise<SettledScan> {
+  let result: ScanStepResult;
+  try {
+    result = await pending;
+  } catch (error) {
+    if (isCancellation(error)) throw error;
+    return { entry: failedEntry(scanner, true, false, `activity failed (${failureType(error)})`), findings: [] };
+  }
+  if (result?.scanner !== scanner || result.status?.scanner !== scanner) {
+    return { entry: failedEntry(scanner, true, false, 'activity returned a result for another scanner'), findings: [] };
+  }
+  const notApplicable = result.status.status === 'skipped' && result.status.cause === 'not-applicable';
+  const entry: ScannerStatusEntry = {
+    ...result.status,
+    required: result.status.required || ALWAYS_REQUIRED.has(scanner) || !notApplicable,
+    heuristic: false,
+  };
+  return { entry, findings: result.findings };
+}
+
+async function settleReview(pending: Promise<Finding[]>): Promise<SettledScan> {
+  let found: Finding[];
+  try {
+    found = await pending;
+  } catch (error) {
+    if (isCancellation(error)) throw error;
+    return { entry: failedEntry('code-review', false, true, `activity failed (${failureType(error)})`), findings: [] };
+  }
+  const findings: ScanFinding[] = found.map((f) => ({ ...f, scanner: 'code-review', heuristic: true }));
+  return {
+    entry: {
+      scanner: 'code-review',
+      required: false,
+      heuristic: true,
+      status: 'completed',
+      toolVersion: null,
+      findingCount: findings.length,
+      evidenceRecordIds: [],
+    },
+    findings,
+  };
+}
+
+function traced(finding: ScanFinding, recordIds: ReadonlySet<string>): boolean {
+  const ref = finding.evidenceRef;
+  return ref !== undefined && typeof ref.recordId === 'string' && recordIds.has(ref.recordId);
 }
 
 // Helper functions

@@ -261,7 +261,7 @@ describe('runLicenseScan applicability and lockfile handling', () => {
     const res = await runLicenseScan(ctx());
     expect(res.status.status).toBe('skipped');
     expect(res.status.cause).toBe('not-applicable');
-    expect(res.status.required).toBe(true);
+    expect(res.status.required).toBe(false);
     expect(res.findings).toEqual([]);
     expect(store.records).toHaveLength(1);
     expect(store.records[0].status).toBe('skipped');

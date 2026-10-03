@@ -47,76 +47,6 @@ app.listen(3000);
     }
   });
 
-  describe('runNpmAudit', () => {
-    it.skip('should execute npm audit activity', async () => {
-      const { runNpmAudit } = await import('../../src/activities/index');
-
-      const findings = await runNpmAudit(testRepoPath, 'test-workflow-1');
-
-      expect(Array.isArray(findings)).toBe(true);
-      // May or may not find vulnerabilities depending on lodash version
-    });
-  });
-
-  describe('runGitleaks', () => {
-    it('should execute gitleaks activity', async () => {
-      const { runGitleaks } = await import('../../src/activities/index');
-
-      const findings = await runGitleaks(testRepoPath, 'test-workflow-2');
-
-      expect(Array.isArray(findings)).toBe(true);
-    });
-  });
-
-  describe('runSemgrep', () => {
-    it('should execute semgrep activity', async () => {
-      const { runSemgrep } = await import('../../src/activities/index');
-
-      const findings = await runSemgrep(testRepoPath, 'test-workflow-3');
-
-      expect(Array.isArray(findings)).toBe(true);
-    }, 120000);
-  });
-
-  describe('runLicenseCheck', () => {
-    it('should check licenses in dependencies', async () => {
-      const { runLicenseCheck } = await import('../../src/activities/index');
-
-      const findings = await runLicenseCheck(testRepoPath, 'test-workflow-4');
-
-      expect(Array.isArray(findings)).toBe(true);
-    });
-
-    it('should detect problematic licenses', async () => {
-      const { runLicenseCheck } = await import('../../src/activities/index');
-
-      // Create a test repo with GPL-licensed package
-      const gplRepo = '/tmp/gpl-test-repo';
-      if (!fs.existsSync(gplRepo)) {
-        fs.mkdirSync(gplRepo, { recursive: true });
-        fs.writeFileSync(path.join(gplRepo, 'package.json'), JSON.stringify({
-          name: 'gpl-test',
-          dependencies: { 'some-gpl-package': '1.0.0' }
-        }));
-        fs.mkdirSync(path.join(gplRepo, 'node_modules', 'some-gpl-package'), { recursive: true });
-        fs.writeFileSync(path.join(gplRepo, 'node_modules', 'some-gpl-package', 'package.json'), JSON.stringify({
-          name: 'some-gpl-package',
-          version: '1.0.0',
-          license: 'GPL-3.0'
-        }));
-      }
-
-      const findings = await runLicenseCheck(gplRepo, 'gpl-test-workflow');
-
-      expect(Array.isArray(findings)).toBe(true);
-
-      // Cleanup
-      if (fs.existsSync(gplRepo)) {
-        fs.rmSync(gplRepo, { recursive: true, force: true });
-      }
-    });
-  });
-
   describe('detectTechStack', () => {
     // Skip: Test fails because testRepoPath is created without package.json in beforeEach
   it.skip('should detect tech stack from repo', async () => {
@@ -338,22 +268,6 @@ app.listen(3000);
       );
 
       expect(Array.isArray(findings)).toBe(true);
-    });
-  });
-
-  describe('cleanup', () => {
-    it('should cleanup temporary files', async () => {
-      const { cleanup } = await import('../../src/activities/index');
-
-      const tempDir = '/tmp/cleanup-activity-test';
-      fs.mkdirSync(tempDir, { recursive: true });
-      fs.writeFileSync(path.join(tempDir, 'test.txt'), 'test content');
-
-      expect(fs.existsSync(tempDir)).toBe(true);
-
-      await cleanup(tempDir);
-
-      expect(fs.existsSync(tempDir)).toBe(false);
     });
   });
 });

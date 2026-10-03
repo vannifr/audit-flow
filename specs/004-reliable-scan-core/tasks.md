@@ -98,7 +98,7 @@ each marked `superseded by FR-xxx` in the commit body. No adapters with the old 
   - Tier C (removes code execution from the audited source). Consumes: R14. Produces: `ScanStepResult` for license check.
 - [ ] T021 [P] [US1] Migrate `reviewCriticalPaths`, `detectPII` and `checkToolRequirements` off `exec`; label code review as heuristic, make npm not required in `src/scan/tools/review.ts`
   - Tier B. Consumes: T013. Produces: findings without secrets.
-- [ ] T022 [US1] Add `settle`, the outcome guard and additive `AuditResult` fields to the workflow so a failed or missing scanner yields INCOMPLETE, and a source failure ends early [TS-001, TS-002, TS-003, TS-006, TS-011] in `src/workflows/index.ts`
+- [x] T022 [US1] Add `settle`, the outcome guard and additive `AuditResult` fields to the workflow so a failed or missing scanner yields INCOMPLETE, and a source failure ends early [TS-001, TS-002, TS-003, TS-006, TS-011] in `src/workflows/index.ts`
   - Tier C (the outcome rule is the core of principle VII). Consumes: T007, T018, T019, T020. Produces: `AuditResult.outcome`.
 - [ ] T023 [US1] Put outcome and scanner status table at the top of the report [TS-007] in `src/activities/index.ts` (`generateReport`) and `src/scan/report.ts`
   - Tier B. Consumes: T022. Produces: report layout per FR-016.

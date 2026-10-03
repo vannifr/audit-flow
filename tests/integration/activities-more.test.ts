@@ -230,19 +230,4 @@ app.listen(3000);
       expect(Array.isArray(findings)).toBe(true);
     });
   });
-
-  describe('Cleanup', () => {
-    it('should cleanup temporary files', async () => {
-      const { cleanup } = await import('../../src/activities/index');
-
-      // Create temp directory
-      const tempPath = '/tmp/cleanup-test-dir';
-      fs.mkdirSync(tempPath, { recursive: true });
-      fs.writeFileSync(path.join(tempPath, 'test.txt'), 'test');
-
-      await cleanup(tempPath);
-
-      expect(fs.existsSync(tempPath)).toBe(false);
-    });
-  });
 });

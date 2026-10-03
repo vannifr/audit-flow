@@ -22,6 +22,9 @@ import type { AuditRun, FetchedSource } from '../scan/lifecycle';
 import { defaultProcessRunner } from '../scan/process-runner';
 import { createEvidenceStore } from '../evidence/store';
 import { validateRepoUrl } from '../scan/repo-url';
+import { createScanActivities } from '../scan/activities';
+import type { ScanActivities, ScanActivity } from '../scan/activities';
+import type { AuditOutcome, NotPerformed, ScannerStatusEntry } from '../scan/status';
 import type {
   Finding,
   TechStack,
@@ -102,50 +105,6 @@ export function getMissingOptionalTools(status: ToolStatus[]): ToolStatus[] {
 // ==================== REPOSITORY ACTIVITIES ====================
 
 export { validateRepoUrl };
-
-export async function cloneRepository(
-  repoUrl: string,
-  workflowId: string
-): Promise<string> {
-  // Security: Validate URL before processing
-  validateRepoUrl(repoUrl);
-
-  const baseDir = `/tmp/audit-${workflowId}`;
-  const repoPath = path.join(baseDir, 'repo');
-
-  try {
-    // Create base directory
-    if (!existsSync(baseDir)) {
-      mkdirSync(baseDir, { recursive: true });
-    }
-
-    // Security: Use spawn with array args instead of exec with string interpolation
-    const { spawn } = require('child_process');
-    const gitProcess = spawn('git', ['clone', '--depth', '1', repoUrl, repoPath], {
-      stdio: 'inherit',
-    });
-
-    await new Promise<void>((resolve, reject) => {
-      gitProcess.on('close', (code: number) => {
-        if (code === 0) {
-          resolve();
-        } else {
-          reject(new Error(`git clone exited with code ${code}`));
-        }
-      });
-      gitProcess.on('error', reject);
-    });
-
-    logger.info({ repoPath }, 'Repository cloned successfully');
-
-    return repoPath;
-  } catch (error) {
-    throw ApplicationFailure.create({
-      message: `Failed to clone repository: ${error instanceof Error ? error.message : String(error)}`,
-      type: 'InvalidRepoError',
-    });
-  }
-}
 
 // ==================== DISCOVERY ACTIVITIES ====================
 
@@ -308,273 +267,6 @@ export async function generateScopeDocument(
   };
 
   return scope;
-}
-
-// ==================== SCAN ACTIVITIES ====================
-
-export async function runNpmAudit(
-  repoPath: string,
-  workflowId: string
-): Promise<Finding[]> {
-  const findings: Finding[] = [];
-  const outputPath = path.join('/tmp', `audit-${workflowId}`, 'npm-audit.json');
-
-  try {
-    // Run npm audit
-    const { stdout, stderr } = await execAsync(
-      `cd ${repoPath} && npm audit --json`,
-      { timeout: 60000 }
-    );
-
-    // Save output
-    mkdirSync(path.dirname(outputPath), { recursive: true });
-    writeFileSync(outputPath, stdout);
-
-    const audit = JSON.parse(stdout);
-
-    // Parse vulnerabilities
-    if (audit.vulnerabilities) {
-      for (const [name, vuln] of Object.entries<any>(audit.vulnerabilities)) {
-        findings.push({
-          id: `NPM-${findings.length + 1}`,
-          title: `Vulnerability in ${name}`,
-          description: vuln.description || `Known vulnerability in dependency ${name}`,
-          severity: mapNpmSeverityToP(vuln.severity),
-          category: 'security-dependencies',
-          evidence: [
-            {
-              type: 'scan-output',
-              content: JSON.stringify(vuln, null, 2),
-              tool: 'npm-audit',
-              timestamp: new Date(),
-            },
-          ],
-          remediation: {
-            description: `Update ${name} to ${vuln.fixAvailable?.version || 'latest'}`,
-            effort: 'hours',
-            priority: vuln.severity === 'critical' ? 'immediate' : 'short-term',
-          },
-          verified: true,
-          createdAt: new Date(),
-        });
-      }
-    }
-
-    logger.info({ count: findings.length }, 'npm audit completed');
-  } catch (error) {
-    // npm audit exits with non-zero if vulnerabilities found
-    logger.warn({ error: String(error) }, 'npm audit encountered issues');
-  }
-
-  return findings;
-}
-
-export async function runGitleaks(
-  repoPath: string,
-  workflowId: string
-): Promise<Finding[]> {
-  const findings: Finding[] = [];
-  const outputPath = path.join(
-    '/tmp',
-    `audit-${workflowId}`,
-    'gitleaks-report.json'
-  );
-
-  try {
-    // Run gitleaks (use directory scan, not git history)
-    // Note: gitleaks exits with code 1 if leaks found, so we catch that
-    let stdout = '';
-    try {
-      const result = await execAsync(
-        `gitleaks directory ${repoPath} --report-path ${outputPath} --report-format json`,
-        { timeout: 120000 }
-      );
-      stdout = result.stdout;
-    } catch (error: any) {
-      // gitleaks exits with code 1 if leaks found - that's OK
-      stdout = error.stdout || '';
-    }
-
-    // Read report
-    if (existsSync(outputPath)) {
-      const report = JSON.parse(readFileSync(outputPath, 'utf-8'));
-
-      for (const leak of report) {
-        findings.push({
-          id: `LEAK-${findings.length + 1}`,
-          title: `Secret detected: ${leak.RuleID}`,
-          description: `Hardcoded secret found in ${leak.File}`,
-          severity: 'P0',
-          category: 'security-data',
-          evidence: [
-            {
-              type: 'scan-output',
-              file: leak.File,
-              line: leak.StartLine,
-              content: leak.Secret,
-              tool: 'gitleaks',
-              timestamp: new Date(),
-            },
-          ],
-          remediation: {
-            description:
-              'Remove secret from code and rotate immediately. Move to environment variables or secrets manager.',
-            effort: 'hours',
-            priority: 'immediate',
-          },
-          verified: true,
-          createdAt: new Date(),
-        });
-      }
-    }
-
-    logger.info({ count: findings.length }, 'gitleaks scan completed');
-  } catch (error) {
-    logger.warn({ error: String(error) }, 'gitleaks encountered issues');
-  }
-
-  return findings;
-}
-
-export async function runSemgrep(
-  repoPath: string,
-  workflowId: string
-): Promise<Finding[]> {
-  const findings: Finding[] = [];
-  const outputPath = path.join(
-    '/tmp',
-    `audit-${workflowId}`,
-    'semgrep-report.json'
-  );
-
-  try {
-    // Run semgrep with custom SQL injection rules + auto config
-    const customRulesPath = '/tmp/sql-injection-rules.yaml';
-    
-    // Check if custom rules exist, otherwise use auto
-    let configFlag = '--config=auto';
-    if (existsSync(customRulesPath)) {
-      configFlag = `--config=auto --config=${customRulesPath}`;
-    }
-
-    await execAsync(
-      `semgrep ${configFlag} --json --output ${outputPath} ${repoPath}`,
-      { timeout: 180000 }
-    );
-
-    // Read report
-    if (existsSync(outputPath)) {
-      const report = JSON.parse(readFileSync(outputPath, 'utf-8'));
-
-      if (report.results) {
-        for (const result of report.results) {
-          findings.push({
-            id: `SEMGREP-${findings.length + 1}`,
-            title: result.check_id,
-            description: result.extra?.message || 'Security issue detected',
-            severity: mapSemgrepSeverityToP(result.extra?.severity),
-            category: 'security-injection',
-            evidence: [
-              {
-                type: 'code-snippet',
-                file: result.path,
-                line: result.start?.line,
-                content: result.extra?.lines || '',
-                tool: 'semgrep',
-                timestamp: new Date(),
-              },
-            ],
-            remediation: {
-              description: result.extra?.fix || 'Fix the security issue',
-              effort: 'hours',
-              priority: 'immediate',
-            },
-            verified: true,
-            createdAt: new Date(),
-          });
-        }
-      }
-    }
-
-    logger.info({ count: findings.length }, 'semgrep scan completed');
-  } catch (error) {
-    logger.warn({ error: String(error) }, 'semgrep encountered issues');
-  }
-
-  return findings;
-}
-
-export async function runLicenseCheck(
-  repoPath: string,
-  workflowId: string
-): Promise<Finding[]> {
-  const findings: Finding[] = [];
-  const outputPath = path.join(
-    '/tmp',
-    `audit-${workflowId}`,
-    'licenses.json'
-  );
-
-  try {
-    // Run license check
-    await execAsync(
-      `cd ${repoPath} && npx license-checker --json > ${outputPath}`,
-      { timeout: 60000 }
-    );
-
-    // Read report
-    if (existsSync(outputPath)) {
-      const report = JSON.parse(readFileSync(outputPath, 'utf-8'));
-
-      // Check for problematic licenses
-      const problematicLicenses = ['GPL', 'AGPL', 'LGPL', 'GPL-3.0', 'AGPL-3.0'];
-
-      for (const [name, info] of Object.entries<any>(report)) {
-        // Handle licenses as array or string
-        const licenses = Array.isArray(info.licenses)
-          ? info.licenses
-          : typeof info.licenses === 'string'
-            ? [info.licenses]
-            : [];
-
-        if (
-          problematicLicenses.some(lic =>
-            licenses.some((l: string) => l.includes(lic))
-          )
-        ) {
-          findings.push({
-            id: `LICENSE-${findings.length + 1}`,
-            title: `License violation in ${name}`,
-            description: `Package ${name} uses ${info.licenses?.join(', ')} which may not be compatible with commercial use`,
-            severity: 'P1',
-            category: 'compliance',
-            evidence: [
-              {
-                type: 'scan-output',
-                content: JSON.stringify(info, null, 2),
-                tool: 'license-checker',
-                timestamp: new Date(),
-              },
-            ],
-            remediation: {
-              description:
-                'Review license compatibility or find alternative package',
-              effort: 'hours',
-              priority: 'short-term',
-            },
-            verified: true,
-            createdAt: new Date(),
-          });
-        }
-      }
-    }
-
-    logger.info({ count: findings.length }, 'license check completed');
-  } catch (error) {
-    logger.warn({ error: String(error) }, 'license check encountered issues');
-  }
-
-  return findings;
 }
 
 // ==================== CODE REVIEW ACTIVITY ====================
@@ -754,6 +446,9 @@ export async function generateReport(input: {
   complianceMaps: ComplianceMap[];
   reviewResult: ReviewResult;
   outputDir?: string;
+  outcome?: AuditOutcome;
+  notPerformed?: NotPerformed[];
+  scanners?: ScannerStatusEntry[];
 }): Promise<{ reportPath: string; evidencePath: string }> {
   const baseDir = input.outputDir || path.join('/tmp', `audit-${input.workflowId}`);
   const reportPath = path.join(baseDir, 'audit-report.md');
@@ -819,47 +514,6 @@ ${input.complianceMaps.map((cm: ComplianceMap) => `### ${cm.framework}\n\nScore:
 
 ## Generated by Temporal Audit Workflow
 `;
-}
-
-// ==================== CLEANUP ACTIVITY ====================
-
-export async function cleanup(repoPath: string): Promise<void> {
-  try {
-    await fs.rm(repoPath, { recursive: true, force: true });
-    logger.info({ repoPath }, 'Cleanup completed');
-  } catch (error) {
-    logger.warn({ error: String(error), repoPath }, 'Cleanup failed');
-  }
-}
-
-// ==================== HELPER FUNCTIONS ====================
-
-function mapNpmSeverityToP(severity: string): 'P0' | 'P1' | 'P2' | 'P3' {
-  switch (severity?.toLowerCase()) {
-    case 'critical':
-      return 'P0';
-    case 'high':
-      return 'P1';
-    case 'moderate':
-      return 'P2';
-    case 'low':
-    case 'info':
-    default:
-      return 'P3';
-  }
-}
-
-function mapSemgrepSeverityToP(severity: string): 'P0' | 'P1' | 'P2' | 'P3' {
-  switch (severity?.toUpperCase()) {
-    case 'ERROR':
-      return 'P0';
-    case 'WARNING':
-      return 'P1';
-    case 'INFO':
-      return 'P2';
-    default:
-      return 'P3';
-  }
 }
 
 // ==================== PERFORMANCE ACTIVITY (Lighthouse) ====================
@@ -2992,3 +2646,21 @@ export async function cleanupRun(run: AuditRun): Promise<void> {
   await lifecycle.cleanupRun(run, os.tmpdir());
   logger.info({ runId: run.runId }, 'Audit run work dir removed');
 }
+
+function scanActivity(name: keyof ScanActivities): ScanActivity {
+  return (run, source, repoUrl) =>
+    createScanActivities({
+      runner: defaultProcessRunner,
+      clock: () => new Date(),
+      evidenceRoot: evidenceRoot(),
+      tmpRoot: os.tmpdir(),
+      frameworkVersion: frameworkVersion(),
+      workerEnv: process.env,
+      configDir: path.resolve(__dirname, '..', '..', 'config', 'scanners'),
+    })[name](run, source, repoUrl);
+}
+
+export const runGitleaks: ScanActivity = scanActivity('runGitleaks');
+export const runSemgrep: ScanActivity = scanActivity('runSemgrep');
+export const runNpmAudit: ScanActivity = scanActivity('runNpmAudit');
+export const runLicenseCheck: ScanActivity = scanActivity('runLicenseCheck');

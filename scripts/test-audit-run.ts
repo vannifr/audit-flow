@@ -8,30 +8,37 @@ import {
   validateRepoUrl,
   detectTechStack,
   generateScopeDocument,
-  runNpmAudit,
-  runGitleaks,
-  runSemgrep,
-  runLicenseCheck,
   mapToCompliance,
   crossValidate,
   generateReport,
-  cleanup,
 } from '../src/activities/index';
+import { initAuditRun, cleanupRun } from '../src/scan/lifecycle';
+import type { AuditRun } from '../src/scan/lifecycle';
+import { defaultProcessRunner } from '../src/scan/process-runner';
+import { createEvidenceStore } from '../src/evidence/store';
+import { computeOutcome } from '../src/scan/status';
+import type { ScanContext, ScanStep, ScanStepResult } from '../src/scan/scan-types';
+import { runGitleaksScan } from '../src/scan/tools/gitleaks';
+import { runSemgrepScan } from '../src/scan/tools/semgrep';
+import { runNpmAuditScan } from '../src/scan/tools/npm-audit';
+import { runLicenseScan } from '../src/scan/tools/licenses';
+import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
 
-const TEST_REPO = '/tmp/e2e-test-repo';
 const WORKFLOW_ID = `e2e-test-${Date.now()}`;
+const RUN_ID = `e2e-${Date.now()}`;
+const EVIDENCE_ROOT = process.env.TESSERA_EVIDENCE_ROOT || path.join(os.tmpdir(), 'tessera-e2e-evidence');
+let RUN: AuditRun;
+let TEST_REPO = '';
 
 async function setupTestRepo() {
   console.log('\n=== Setting up test repository ===');
 
-  if (fs.existsSync(TEST_REPO)) {
-    fs.rmSync(TEST_REPO, { recursive: true, force: true });
-  }
-
-  fs.mkdirSync(TEST_REPO, { recursive: true });
+  RUN = await initAuditRun({ workflowId: WORKFLOW_ID, temporalRunId: RUN_ID, tmpRoot: os.tmpdir() });
+  TEST_REPO = RUN.repoDir;
+  fs.mkdirSync(TEST_REPO, { recursive: true, mode: 0o700 });
 
   // Create package.json with known vulnerable dependency
   fs.writeFileSync(
@@ -155,27 +162,44 @@ async function runE2ETest() {
     // Phase 2: Security Scans
     console.log('\n--- Phase 2: Security Scans ---');
 
-    console.log('\n4. Running npm audit...');
-    const npmFindings = await runNpmAudit(TEST_REPO, WORKFLOW_ID);
-    console.log(`   Found ${npmFindings.length} dependency vulnerabilities`);
-
-    console.log('\n5. Running gitleaks (secret detection)...');
-    const leakFindings = await runGitleaks(TEST_REPO, WORKFLOW_ID);
-    console.log(`   Found ${leakFindings.length} secrets`);
-    if (leakFindings.length > 0) {
-      console.log('   Sample:', leakFindings[0]?.title);
+    const ctx: ScanContext = {
+      run: RUN,
+      source: { repoDir: TEST_REPO, revision: '0'.repeat(40) },
+      repoUrl: 'https://github.com/test/e2e-test',
+      attempt: 1,
+      deps: {
+        runner: defaultProcessRunner,
+        store: createEvidenceStore(EVIDENCE_ROOT, RUN_ID),
+        clock: () => new Date(),
+        frameworkVersion: 'e2e',
+      },
+      workerEnv: process.env,
+      configDir: path.resolve(__dirname, '..', 'config', 'scanners'),
+    };
+    const steps: [string, ScanStep][] = [
+      ['npm audit', runNpmAuditScan],
+      ['gitleaks (secret detection)', runGitleaksScan],
+      ['semgrep (SAST)', runSemgrepScan],
+      ['license check', runLicenseScan],
+    ];
+    const results: ScanStepResult[] = [];
+    for (const [index, [label, step]] of steps.entries()) {
+      console.log(`\n${index + 4}. Running ${label}...`);
+      const result = await step(ctx);
+      results.push(result);
+      console.log(`   Status: ${result.status.status}${result.status.cause ? ` (${result.status.cause})` : ''}, findings: ${result.findings.length}`);
     }
-
-    console.log('\n6. Running semgrep (SAST)...');
-    const semgrepFindings = await runSemgrep(TEST_REPO, WORKFLOW_ID);
-    console.log(`   Found ${semgrepFindings.length} code issues`);
-    if (semgrepFindings.length > 0) {
-      console.log('   Sample:', semgrepFindings[0]?.title);
-    }
-
-    console.log('\n7. Running license check...');
-    const licenseFindings = await runLicenseCheck(TEST_REPO, WORKFLOW_ID);
-    console.log(`   Found ${licenseFindings.length} license issues`);
+    const [npmResult, leakResult, semgrepResult, licenseResult] = results;
+    const npmFindings = npmResult.findings;
+    const leakFindings = leakResult.findings;
+    const semgrepFindings = semgrepResult.findings;
+    const licenseFindings = licenseResult.findings;
+    const decision = computeOutcome({
+      scanners: results.map((r) => r.status),
+      untracedFindingIds: results.flatMap((r) => r.findings).filter((f) => f.evidenceRef === undefined).map((f) => f.id),
+    });
+    console.log(`\n   Outcome: ${decision.outcome}`);
+    for (const item of decision.notPerformed) console.log(`   Not performed: ${item.summary}`);
 
     // Aggregate findings
     const allFindings = [...npmFindings, ...leakFindings, ...semgrepFindings, ...licenseFindings];
@@ -213,6 +237,9 @@ async function runE2ETest() {
       complianceMaps: Array.isArray(complianceMaps) ? complianceMaps : [],
       reviewResult,
       outputDir: `/tmp/audit-${WORKFLOW_ID}`,
+      outcome: decision.outcome,
+      notPerformed: decision.notPerformed,
+      scanners: results.map((r) => r.status),
     });
 
     console.log(`   Report path: ${report.reportPath}`);
@@ -237,8 +264,9 @@ async function runE2ETest() {
 
     // Cleanup
     console.log('\n11. Cleaning up...');
-    await cleanup(TEST_REPO);
-    console.log('   Test repo cleaned up');
+    await cleanupRun(RUN, os.tmpdir());
+    console.log('   Work dir cleaned up');
+    console.log(`   Evidence kept under ${path.join(EVIDENCE_ROOT, RUN_ID)}`);
 
     console.log('\n=== E2E TEST COMPLETE ===\n');
     return true;

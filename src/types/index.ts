@@ -1,3 +1,5 @@
+import type { AuditOutcome, NotPerformed, ScannerStatusEntry } from '../scan/status';
+
 // Application Audit Types
 
 export interface AuditInput {
@@ -18,6 +20,10 @@ export interface AuditResult {
   duration: number;
   startTime: Date;
   endTime: Date;
+  outcome: AuditOutcome;
+  notPerformed: NotPerformed[];
+  scanners: ScannerStatusEntry[];
+  source: { repoUrl: string; revision: string | null };
 }
 
 export type AuditStatus =
@@ -159,4 +165,8 @@ export interface AuditState {
   scope: ScopeDocument | null;
   p0Approved: boolean;
   error?: string;
+  scanners?: ScannerStatusEntry[];
+  outcome?: AuditOutcome;
+  notPerformed?: NotPerformed[];
+  revision?: string;
 }
