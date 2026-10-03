@@ -10,3 +10,7 @@ paths = ['''^demo/''']
 [[allowlists]]
 description = "synthetic secret shapes (fake private-key block, demo tokens) used as input for the redaction unit tests; none are real credentials"
 paths = ['''^tests/unit/evidence/redact\.test\.ts$''']
+
+[[allowlists]]
+description = "fake credentials used as fixtures by the end-to-end script and the real-tool integration test; none are real. Replaces fragile line-number fingerprints in .gitleaksignore."
+paths = ['''^scripts/test-audit-run\.ts$''', '''^tests/integration/activities-real\.test\.ts$''']

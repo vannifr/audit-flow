@@ -1,10 +1,1 @@
-# This file contains false positives from test fixtures
-# These are NOT real secrets - they are test data for security scanning validation
-
-# Test fixtures in test-audit-run.ts
-scripts/test-audit-run.ts:generic-api-key:61
-scripts/test-audit-run.ts:generic-api-key:84
-scripts/test-audit-run.ts:stripe-access-token:102
-
-# Test fixtures in activities-real.test.ts
-tests/integration/activities-real.test.ts:generic-api-key:23
+# Fingerprint ignores break whenever a line moves. Use path allowlists with a reason in .gitleaks.toml instead.
