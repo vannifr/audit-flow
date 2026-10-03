@@ -6,6 +6,9 @@
 - `npm run evidence:verify -- <bundle-dir> [--expect-root <sha256>] [--pubkey <file|dir>]... [--json] [--trace <recordId>]`: verify a sealed evidence bundle; first word `VERIFIED` (hashes and a valid signature for a `--pubkey` key), `HASHES-OK` (no `--pubkey`, hashes only) or `FAILED` (exit 0 for the first two, 1 issues, 2 usage)
 - Never run `git commit`, `git push` or any git command that changes history. The orchestrator commits.
 
+## Phase ritual
+- At the end of every phase: retro note, independent model review (different family, read-only, triaged), actions landed, roadmap checked. See `docs/agile/working-agreement.md` ("End of every phase"). The long-term goal and the assurance levels live in `docs/assurance-roadmap.md`.
+
 ## Code rules
 - TypeScript strict, Node 20 or later, no new dependencies unless the task says so.
 - No comments in code unless the task asks for them.

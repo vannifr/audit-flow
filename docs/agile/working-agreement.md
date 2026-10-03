@@ -43,6 +43,18 @@ Do not extend silently. Cut scope, not quality: the first things to go are later
   property tests or the product owner's judgment on Tier C commits.
 - Only the framework's own code goes to external models; client code never, without explicit permission.
 
+## End of every phase (fixed ritual)
+
+A phase is an IIKit phase (spec, plan, tests, tasks, implementation) or a delivered slice. It is not closed until all four are done:
+1. **Retro note**: `docs/retro/NNN-<phase>.md` from `TEMPLATE.md`, with numbers and actions; running observations go to `docs/retro/NNN-agentic-notes.md`.
+2. **Independent model review**: a different family than the builder reviews the framework's own artifacts read-only through
+   `opencode-orchestratie` (default GLM; Qwen or Kimi as second opinion), Alibaba runs serial under `flock` and `timeout`.
+   The raw report is never trusted: every claim is checked against the code and triaged in `docs/review-NNN-<model>.md` with
+   an action per item (valid, minor, not applicable, false).
+3. **Actions land**: valid findings become fixes or backlog issues in the same phase, with the review named in the commit body.
+4. **Long-term goal check**: re-read the product goal and levels in `docs/assurance-roadmap.md`; note whether the phase moved a
+   level criterion and update the roadmap in the same commit.
+
 ## Stop the line
 
 A red pipeline on `main` stops all new work until it is green again. Security fixes from the review (class of service
