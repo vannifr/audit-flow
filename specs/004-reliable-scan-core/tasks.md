@@ -94,7 +94,7 @@ each marked `superseded by FR-xxx` in the commit body. No adapters with the old 
   - Tier B. Consumes: T013. Produces: `ScanStepResult` for gitleaks. Supersedes old gitleaks tests.
 - [x] T019 [US1] Migrate `runSemgrep` to `runTool` with `--metrics=off`, packs `p/javascript` and `p/nodejs`, `--disable-nosem`, `EIO_BACKEND=posix`, crash classified as failed to pass [TS-002, TS-005, TS-010] in `src/scan/tools/semgrep.ts`
   - Tier B. Consumes: T013, research R6. Produces: `ScanStepResult` for semgrep. Supersedes old semgrep tests.
-- [ ] T020 [US1] Replace the `npx license-checker` call by an in-process license check from the lockfile to pass [TS-005] in `src/scan/tools/licenses.ts`
+- [x] T020 [US1] Replace the `npx license-checker` call by an in-process license check from the lockfile to pass [TS-005] in `src/scan/tools/licenses.ts`
   - Tier C (removes code execution from the audited source). Consumes: R14. Produces: `ScanStepResult` for license check.
 - [ ] T021 [P] [US1] Migrate `reviewCriticalPaths`, `detectPII` and `checkToolRequirements` off `exec`; label code review as heuristic, make npm not required in `src/scan/tools/review.ts`
   - Tier B. Consumes: T013. Produces: findings without secrets.
