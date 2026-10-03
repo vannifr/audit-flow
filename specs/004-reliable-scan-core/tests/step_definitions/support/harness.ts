@@ -4,6 +4,7 @@ import Module from 'node:module';
 import { chmod, mkdtemp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { Writable } from 'node:stream';
 import { createHash, randomBytes } from 'node:crypto';
 import { RetryState } from '@temporalio/common';
 import type { AuditRun, FetchedSource } from '../../../../../src/scan/lifecycle';
@@ -54,10 +55,27 @@ const fallbackState: ActivityState = { runId: RUN_ID, attempt: 1, activities: {}
 const stateStore = new AsyncLocalStorage<ActivityState>();
 const currentState = (): ActivityState => stateStore.getStore() ?? fallbackState;
 
+export const capturedLogs: string[] = [];
+const SRC_ROOT = path.resolve(__dirname, '../../../../../src') + path.sep;
+
 const moduleInternals = Module as unknown as { _load: (request: string, ...rest: unknown[]) => unknown };
 const originalLoad = moduleInternals._load;
 const patched = new Map<string, unknown>();
 moduleInternals._load = function load(request: string, ...rest: unknown[]): unknown {
+  const parent = rest[0] as { filename?: string } | undefined;
+  if (/(^|\/)logger$/.test(request) && parent?.filename?.startsWith(SRC_ROOT)) {
+    if (!patched.has('logger')) {
+      const pino = (originalLoad.call(this, 'pino', ...rest) as { default?: unknown }).default ?? originalLoad.call(this, 'pino', ...rest);
+      const sink = new Writable({
+        write(chunk: Buffer, _encoding, callback) {
+          capturedLogs.push(chunk.toString('utf8'));
+          callback();
+        },
+      });
+      patched.set('logger', { __esModule: true, default: (pino as (o: object, s: Writable) => unknown)({ level: 'trace' }, sink) });
+    }
+    return patched.get('logger');
+  }
   const real = originalLoad.call(this, request, ...rest);
   if (request === '@temporalio/workflow') {
     if (!patched.has(request)) {
