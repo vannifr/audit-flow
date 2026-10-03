@@ -274,8 +274,8 @@ describe('evidence store', () => {
     expect(await readdir(root)).toEqual([]);
   });
 
-  it('fails closed when the evidence root is not writable and leaves no record behind', async () => {
-    if (process.getuid?.() === 0) return;
+  it('fails closed when the evidence root is not writable and leaves no record behind', async ({ skip }) => {
+    if (process.getuid?.() === 0) skip();
     chmodSync(root, 0o500);
     try {
       const store = createEvidenceStore(root, 'run-1');

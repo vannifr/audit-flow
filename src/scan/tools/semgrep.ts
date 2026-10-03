@@ -9,6 +9,10 @@ import type { Classification, ParseResult, ProcessOutcome, Sanitized, ToolInvoca
 
 type Json = Record<string, unknown>;
 
+function lineSuffix(line: number | undefined): string {
+  return line === undefined ? '' : `:${line}`;
+}
+
 export interface SemgrepReport {
   results: unknown[];
   errors: unknown[];
@@ -213,7 +217,7 @@ export const runSemgrepScan: ScanStep = async (ctx: ScanContext): Promise<ScanSt
         type: 'scan-output',
         file: hit.file,
         ...(hit.line !== undefined ? { line: hit.line } : {}),
-        content: `${hit.file}${hit.line !== undefined ? `:${hit.line}` : ''} ${hit.message}`,
+        content: `${hit.file}${lineSuffix(hit.line)} ${hit.message}`,
         tool: 'semgrep',
         timestamp: createdAt,
       },

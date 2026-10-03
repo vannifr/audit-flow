@@ -82,6 +82,22 @@ const SCANS: readonly (readonly [ScannerId, ScanActivity])[] = [
   ['license-check', runLicenseCheck],
 ];
 
+async function awaitP0Approval(state: AuditState, input: AuditInput, evidence: EvidenceSummary): Promise<void> {
+  const hasP0 = state.findings.some((f) => f.severity === 'P0');
+  if (!hasP0 || input.skipApproval) return;
+  state.currentPhase = 'awaiting-approval';
+  const approvalTimeout = 7 * 24 * 60 * 60 * 1000;
+  const approved = await condition(() => state.p0Approved, approvalTimeout);
+  if (!approved) {
+    throw ApplicationFailure.create({
+      type: 'AuditRejectedError',
+      message: 'Audit rejected: P0 findings not approved within timeout',
+      nonRetryable: true,
+      details: evidenceDetails(evidence),
+    });
+  }
+}
+
 // Workflow definition
 export async function applicationAudit(input: AuditInput): Promise<AuditResult> {
   const startTime = new Date();
@@ -277,28 +293,7 @@ export async function applicationAudit(input: AuditInput): Promise<AuditResult> 
 
     // ==================== FASE 5: HUMAN APPROVAL ====================
 
-    // Check for P0 findings
-    const p0Findings = state.findings.filter(f => f.severity === 'P0');
-
-    if (p0Findings.length > 0 && !input.skipApproval) {
-      state.currentPhase = 'awaiting-approval';
-
-      // Wait for human signal (with timeout)
-      const approvalTimeout = 7 * 24 * 60 * 60 * 1000; // 7 days
-      const approved = await condition(
-        () => state.p0Approved,
-        approvalTimeout
-      );
-
-      if (!approved) {
-        throw ApplicationFailure.create({
-          type: 'AuditRejectedError',
-          message: 'Audit rejected: P0 findings not approved within timeout',
-          nonRetryable: true,
-          details: evidenceDetails(evidence),
-        });
-      }
-    }
+    await awaitP0Approval(state, input, evidence);
 
     // ==================== FASE 6: REPORT GENERATION ====================
     state.currentPhase = 'reporting';

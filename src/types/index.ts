@@ -2,6 +2,8 @@ import type { AuditOutcome, NotPerformed, ScannerStatusEntry } from '../scan/sta
 
 // Application Audit Types
 
+export type FindingSeverity = 'P0' | 'P1' | 'P2' | 'P3';
+
 export interface AuditInput {
   repoUrl: string;
   scope?: 'full' | 'security' | 'compliance';
@@ -45,7 +47,7 @@ export interface Finding {
   id: string;
   title: string;
   description: string;
-  severity: 'P0' | 'P1' | 'P2' | 'P3';
+  severity: FindingSeverity;
   category: FindingCategory;
   evidence: Evidence[];
   remediation: Remediation;
@@ -139,14 +141,14 @@ export interface ReviewResult {
 export interface ReviewAdvice {
   findingId: string;
   kind: 'severity-correction' | 'false-positive';
-  currentSeverity?: 'P0' | 'P1' | 'P2' | 'P3';
-  suggestedSeverity?: 'P0' | 'P1' | 'P2' | 'P3';
+  currentSeverity?: FindingSeverity;
+  suggestedSeverity?: FindingSeverity;
   reason?: string;
 }
 
 export interface SeverityCorrection {
   findingId: string;
-  newSeverity: 'P0' | 'P1' | 'P2' | 'P3';
+  newSeverity: FindingSeverity;
   reason: string;
 }
 

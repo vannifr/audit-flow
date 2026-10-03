@@ -97,22 +97,7 @@ describe('Helper Functions', () => {
   });
 
   describe('Compliance framework validation', () => {
-    it('should validate ISO 27001', () => {
-      const framework = 'ISO27001';
-      const validFrameworks = ['ISO27001', 'PCI-DSS', 'GDPR', 'OWASP-ASVS'];
-
-      expect(validFrameworks).toContain(framework);
-    });
-
-    it('should validate PCI-DSS', () => {
-      const framework = 'PCI-DSS';
-      const validFrameworks = ['ISO27001', 'PCI-DSS', 'GDPR', 'OWASP-ASVS'];
-
-      expect(validFrameworks).toContain(framework);
-    });
-
-    it('should validate GDPR', () => {
-      const framework = 'GDPR';
+    it.each([['ISO27001'], ['PCI-DSS'], ['GDPR']])('should validate %s', (framework) => {
       const validFrameworks = ['ISO27001', 'PCI-DSS', 'GDPR', 'OWASP-ASVS'];
 
       expect(validFrameworks).toContain(framework);

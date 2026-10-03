@@ -158,10 +158,11 @@ function buildFindings(report: NpmAuditReport, evidence: EvidenceRef, now: Date)
       fixAvailable: vuln.fixAvailable ?? false,
     }).slice(0, MAX_CONTENT);
     const item: Evidence = { type: 'scan-output', file: 'package.json', content, tool: 'npm', timestamp: now };
+    const viaSuffix = via.length > 0 ? `: ${via.join('; ')}` : '';
     findings.push({
       id: `DEP-${findings.length + 1}`,
       title: `${name}: ${shortTitle(vuln)}`,
-      description: `Known vulnerability in dependency ${name}${via.length > 0 ? `: ${via.join('; ')}` : ''}`.slice(0, MAX_CONTENT),
+      description: `Known vulnerability in dependency ${name}${viaSuffix}`.slice(0, MAX_CONTENT),
       severity,
       category: 'security-dependencies',
       evidence: [item],

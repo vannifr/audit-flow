@@ -76,7 +76,7 @@ describe('CLI Client Integration', () => {
         { severity: 'P0' },
       ];
 
-      expect(findings.length).toBe(3);
+      expect(findings).toHaveLength(3);
     });
   });
 

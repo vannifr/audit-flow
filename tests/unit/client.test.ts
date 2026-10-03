@@ -161,6 +161,6 @@ describe('Findings Filtering', () => {
       { id: 'FIND-003', severity: 'P0' },
     ];
 
-    expect(findings.length).toBe(3);
+    expect(findings).toHaveLength(3);
   });
 });

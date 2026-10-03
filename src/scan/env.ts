@@ -7,7 +7,7 @@ const MAX_GIT_CONFIG_COUNT = 100;
 
 function gitConfigPassthrough(workerEnv: Readonly<Record<string, string | undefined>>): string[] {
   const raw = workerEnv.GIT_CONFIG_COUNT;
-  if (raw === undefined || !/^[0-9]{1,3}$/.test(raw)) return [];
+  if (raw === undefined || !/^\d{1,3}$/.test(raw)) return [];
   const count = Number(raw);
   if (count > MAX_GIT_CONFIG_COUNT) return [];
   const names = ['GIT_CONFIG_COUNT'];
@@ -17,6 +17,34 @@ function gitConfigPassthrough(workerEnv: Readonly<Record<string, string | undefi
     }
   }
   return names;
+}
+
+type WorkerEnv = Readonly<Record<string, string | undefined>>;
+
+function toolPassNames(tool: string, workerEnv: WorkerEnv, overrides: Record<string, string>): string[] {
+  const passNames: string[] = [...PROXY_PASSTHROUGH];
+  if (tool === 'git') {
+    overrides.GIT_TERMINAL_PROMPT = '0';
+    overrides.GIT_ASKPASS = '';
+    overrides.GIT_LFS_SKIP_SMUDGE = '1';
+    overrides.GIT_CONFIG_NOSYSTEM = '1';
+    overrides.GIT_CONFIG_GLOBAL = '/dev/null';
+    passNames.push(...gitConfigPassthrough(workerEnv));
+  }
+  if (tool === 'semgrep') {
+    if (workerEnv.EIO_BACKEND !== undefined) {
+      passNames.push('EIO_BACKEND');
+    } else {
+      overrides.EIO_BACKEND = 'posix';
+    }
+  }
+  return passNames;
+}
+
+function semgrepUserBase(workerEnv: WorkerEnv): string | undefined {
+  const userBase = workerEnv.PYTHONUSERBASE ?? (workerEnv.HOME ? path.posix.join(workerEnv.HOME, '.local') : undefined);
+  if (userBase !== undefined && path.posix.isAbsolute(userBase) && !/[\0\r\n]/.test(userBase)) return userBase;
+  return undefined;
 }
 
 export const buildToolEnv: BuildToolEnv = (tool, workDir, workerEnv) => {
@@ -34,24 +62,7 @@ export const buildToolEnv: BuildToolEnv = (tool, workDir, workerEnv) => {
   overrides.TMPDIR = path.posix.join(workDir, 'tmp');
   overrides.NO_COLOR = '1';
 
-  const passNames: string[] = [...PROXY_PASSTHROUGH];
-
-  if (tool === 'git') {
-    overrides.GIT_TERMINAL_PROMPT = '0';
-    overrides.GIT_ASKPASS = '';
-    overrides.GIT_LFS_SKIP_SMUDGE = '1';
-    overrides.GIT_CONFIG_NOSYSTEM = '1';
-    overrides.GIT_CONFIG_GLOBAL = '/dev/null';
-    passNames.push(...gitConfigPassthrough(workerEnv));
-  }
-
-  if (tool === 'semgrep') {
-    if (workerEnv.EIO_BACKEND !== undefined) {
-      passNames.push('EIO_BACKEND');
-    } else {
-      overrides.EIO_BACKEND = 'posix';
-    }
-  }
+  const passNames = toolPassNames(tool, workerEnv, overrides);
 
   for (const name of passNames) {
     const value = workerEnv[name];
@@ -61,8 +72,8 @@ export const buildToolEnv: BuildToolEnv = (tool, workDir, workerEnv) => {
   }
 
   if (tool === 'semgrep') {
-    const userBase = workerEnv.PYTHONUSERBASE ?? (workerEnv.HOME ? path.posix.join(workerEnv.HOME, '.local') : undefined);
-    if (userBase !== undefined && path.posix.isAbsolute(userBase) && !/[\0\r\n]/.test(userBase)) {
+    const userBase = semgrepUserBase(workerEnv);
+    if (userBase !== undefined) {
       env.PYTHONUSERBASE = userBase;
       passthrough.push('PYTHONUSERBASE');
     }

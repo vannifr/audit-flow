@@ -133,7 +133,7 @@ describe('getMissingRequiredTools', () => {
 
     const missing = getMissingRequiredTools(status);
     
-    expect(missing.length).toBe(1);
+    expect(missing).toHaveLength(1);
     expect(missing[0].name).toBe('npm');
     expect(missing[0].required).toBe(true);
   });
@@ -146,7 +146,7 @@ describe('getMissingRequiredTools', () => {
 
     const missing = getMissingRequiredTools(status);
     
-    expect(missing.length).toBe(0);
+    expect(missing).toHaveLength(0);
   });
 });
 
@@ -161,7 +161,7 @@ describe('getMissingOptionalTools', () => {
 
     const missing = getMissingOptionalTools(status);
     
-    expect(missing.length).toBe(2);
+    expect(missing).toHaveLength(2);
     expect(missing[0].required).toBe(false);
   });
 
@@ -173,7 +173,7 @@ describe('getMissingOptionalTools', () => {
 
     const missing = getMissingOptionalTools(status);
     
-    expect(missing.length).toBe(0);
+    expect(missing).toHaveLength(0);
   });
 });
 

@@ -244,12 +244,12 @@ async function writeSignatureFile(bundleDir: string, content: string): Promise<v
   }
 }
 
-export async function signEvidenceBundle(opts: {
+async function assertSigningPreconditions(opts: {
   bundleDir: string;
   keyPath: string;
   evidenceRoot: string;
   clock: () => Date;
-}): Promise<EvidenceSignature> {
+}): Promise<{ bundleDir: string; realKey: string }> {
   if (typeof opts?.bundleDir !== 'string' || !path.isAbsolute(opts.bundleDir)) fail('sign', 'bundleDir must be an absolute path');
   if (typeof opts.keyPath !== 'string' || opts.keyPath.length === 0) fail('sign', 'a signing key path is required');
   if (typeof opts.evidenceRoot !== 'string' || opts.evidenceRoot.length === 0) fail('sign', 'evidenceRoot is required');
@@ -271,7 +271,10 @@ export async function signEvidenceBundle(opts: {
   for (const root of roots) {
     if (isInside(root, realKey) || isInside(root, keyPath)) fail('sign', `refusing a signing key inside the evidence folder: ${keyPath}`);
   }
+  return { bundleDir, realKey };
+}
 
+async function clearSignatureLeftovers(bundleDir: string): Promise<void> {
   if ((await lstatOrNull(path.join(bundleDir, SIGNATURE_FILE))) !== null) {
     fail('sign', `signature already exists: ${path.join(bundleDir, SIGNATURE_FILE)}`);
   }
@@ -283,6 +286,16 @@ export async function signEvidenceBundle(opts: {
       await chmod(bundleDir, SEALED_DIR_MODE);
     }
   }
+}
+
+export async function signEvidenceBundle(opts: {
+  bundleDir: string;
+  keyPath: string;
+  evidenceRoot: string;
+  clock: () => Date;
+}): Promise<EvidenceSignature> {
+  const { bundleDir, realKey } = await assertSigningPreconditions(opts);
+  await clearSignatureLeftovers(bundleDir);
   const manifestBytes = await readSealedManifest(bundleDir);
   const manifest = parseManifest(manifestBytes);
   if (manifest === null || manifest.runId.includes('\n')) fail('sign', 'manifest.json is not a valid tessera manifest');
@@ -313,6 +326,11 @@ export async function signEvidenceBundle(opts: {
   };
   await writeSignatureFile(bundleDir, `${JSON.stringify(signature, null, 2)}\n`);
   return signature;
+}
+
+function compareCodeUnits(a: string, b: string): number {
+  if (a < b) return -1;
+  return a > b ? 1 : 0;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -369,7 +387,7 @@ async function loadTrustedKeys(entries: readonly string[]): Promise<Map<string, 
       } catch {
         continue;
       }
-      for (const name of names.filter((n) => n.endsWith('.pub')).sort()) add(await readPublicKey(path.join(entry, name)));
+      for (const name of names.filter((n) => n.endsWith('.pub')).sort(compareCodeUnits)) add(await readPublicKey(path.join(entry, name)));
     } else if (st.isFile()) {
       add(await readPublicKey(entry));
     }

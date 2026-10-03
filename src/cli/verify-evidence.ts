@@ -22,31 +22,48 @@ function plain(value: string): string {
   return /^[\x20-\x7e]*$/.test(value) ? value : JSON.stringify(value);
 }
 
+type Parsed = { error: string } | { next: number };
+
+function valueOf(argv: string[], i: number, arg: string, allowEmpty: boolean): string | { error: string } {
+  const value = argv[i + 1];
+  if (value === undefined || value.startsWith('--') || (!allowEmpty && value.length === 0)) return { error: `${arg} requires a value` };
+  return value;
+}
+
+function parsePubkey(argv: string[], i: number, pubkeys: string[]): Parsed {
+  const value = valueOf(argv, i, '--pubkey', false);
+  if (typeof value !== 'string') return value;
+  pubkeys.push(path.resolve(value));
+  return { next: i + 1 };
+}
+
+function parseValued(argv: string[], i: number, state: { expectRoot?: string; trace?: string }): Parsed {
+  const arg = argv[i];
+  const value = valueOf(argv, i, arg, true);
+  if (typeof value !== 'string') return value;
+  if (arg === '--trace') {
+    state.trace = value;
+    return { next: i + 1 };
+  }
+  if (!HEX64.test(value)) return { error: '--expect-root must be a sha256 hex digest' };
+  state.expectRoot = value.toLowerCase();
+  return { next: i + 1 };
+}
+
 function parseArgs(argv: string[]): CliArgs | string {
   let bundleDir: string | undefined;
-  let expectRoot: string | undefined;
-  let trace: string | undefined;
+  const state: { expectRoot?: string; trace?: string } = {};
   let json = false;
   const pubkeys: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
+    let step: Parsed | undefined;
     if (arg === '--json') {
       json = true;
     } else if (arg === '--pubkey') {
-      const value = argv[i + 1];
-      if (value === undefined || value.startsWith('--') || value.length === 0) return `${arg} requires a value`;
-      i += 1;
-      pubkeys.push(path.resolve(value));
+      step = parsePubkey(argv, i, pubkeys);
     } else if (arg === '--expect-root' || arg === '--trace') {
-      const value = argv[i + 1];
-      if (value === undefined || value.startsWith('--')) return `${arg} requires a value`;
-      i += 1;
-      if (arg === '--expect-root') {
-        if (!HEX64.test(value)) return '--expect-root must be a sha256 hex digest';
-        expectRoot = value.toLowerCase();
-      } else {
-        trace = value;
-      }
+      step = parseValued(argv, i, state);
     } else if (arg.startsWith('-')) {
       return `unknown option ${plain(arg)}`;
     } else if (bundleDir === undefined) {
@@ -54,9 +71,13 @@ function parseArgs(argv: string[]): CliArgs | string {
     } else {
       return 'only one bundle directory can be given';
     }
+    if (step !== undefined) {
+      if ('error' in step) return step.error;
+      i = step.next;
+    }
   }
   if (bundleDir === undefined) return 'missing bundle directory';
-  return { bundleDir: path.resolve(bundleDir), expectRoot, json, trace, pubkeys };
+  return { bundleDir: path.resolve(bundleDir), expectRoot: state.expectRoot, json, trace: state.trace, pubkeys };
 }
 
 const HEADLINE: Record<VerifyVerdict, string> = { verified: 'VERIFIED', 'hashes-ok': 'HASHES-OK', failed: 'FAILED' };
@@ -85,6 +106,35 @@ function textReport(report: VerifyReport, checked: boolean): string {
   return `${lines.join('\n')}\n`;
 }
 
+function traceLines(report: VerifyReport, checked: boolean, trace: Awaited<ReturnType<typeof traceEvidence>>): string {
+  const lines = [
+    textReport(report, checked).trimEnd(),
+    `record: ${trace.recordId}`,
+    `step: ${plain(trace.record.stepId)}`,
+    `tool: ${plain(trace.record.tool.name)} ${plain(trace.record.tool.version ?? 'unknown')}`,
+    `source: ${plain(trace.source.repoUrl)}`,
+    `revision: ${plain(trace.source.revision ?? 'unknown')}`,
+    ...trace.artifacts.map((a) => `artifact: ${plain(a.path)} sha256 ${a.sha256} raw sha256 ${a.rawSha256}`),
+    `root hash: ${trace.rootHash}`,
+  ];
+  return `${lines.join('\n')}\n`;
+}
+
+async function runTrace(args: CliArgs, report: VerifyReport, checked: boolean, io: CliIo): Promise<number> {
+  try {
+    const trace = await traceEvidence(args.bundleDir, args.trace as string);
+    if (args.json) {
+      io.stdout(`${JSON.stringify({ report: { ...report, signatureChecked: checked }, trace }, null, 2)}\n`);
+    } else {
+      io.stdout(traceLines(report, checked, trace));
+    }
+    return 0;
+  } catch (error) {
+    io.stderr(`${error instanceof Error ? plain(error.message) : 'trace failed'}\n`);
+    return 1;
+  }
+}
+
 export async function runVerifyCli(argv: string[], io: CliIo): Promise<number> {
   const args = parseArgs(argv);
   if (typeof args === 'string') {
@@ -106,28 +156,7 @@ export async function runVerifyCli(argv: string[], io: CliIo): Promise<number> {
     io.stdout(args.json ? `${JSON.stringify({ ...report, signatureChecked: checked }, null, 2)}\n` : textReport(report, checked));
     return report.verdict === 'failed' ? 1 : 0;
   }
-  try {
-    const trace = await traceEvidence(args.bundleDir, args.trace);
-    if (args.json) {
-      io.stdout(`${JSON.stringify({ report: { ...report, signatureChecked: checked }, trace }, null, 2)}\n`);
-    } else {
-      const lines = [
-        textReport(report, checked).trimEnd(),
-        `record: ${trace.recordId}`,
-        `step: ${plain(trace.record.stepId)}`,
-        `tool: ${plain(trace.record.tool.name)} ${plain(trace.record.tool.version ?? 'unknown')}`,
-        `source: ${plain(trace.source.repoUrl)}`,
-        `revision: ${plain(trace.source.revision ?? 'unknown')}`,
-        ...trace.artifacts.map((a) => `artifact: ${plain(a.path)} sha256 ${a.sha256} raw sha256 ${a.rawSha256}`),
-        `root hash: ${trace.rootHash}`,
-      ];
-      io.stdout(`${lines.join('\n')}\n`);
-    }
-    return 0;
-  } catch (error) {
-    io.stderr(`${error instanceof Error ? plain(error.message) : 'trace failed'}\n`);
-    return 1;
-  }
+  return runTrace(args, report, checked, io);
 }
 
 async function main(): Promise<void> {

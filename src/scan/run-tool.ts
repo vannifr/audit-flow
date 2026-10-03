@@ -40,7 +40,7 @@ interface RawOutput {
 type ReportRead = { kind: 'ok'; output: RawOutput } | { kind: 'missing' } | { kind: 'rejected' };
 
 function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return value.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
 }
 
 function makeTokenizer(pathTokens: Record<string, string>): Tokenizer {
@@ -72,7 +72,7 @@ function workDirOf(pathTokens: Record<string, string>): string | null {
 
 function defaultMaxOutputBytes(): number {
   const raw = process.env.TESSERA_MAX_OUTPUT_MB;
-  if (raw !== undefined && /^[0-9]{1,5}$/.test(raw) && Number(raw) > 0) return Number(raw) * MIB;
+  if (raw !== undefined && /^\d{1,5}$/.test(raw) && Number(raw) > 0) return Number(raw) * MIB;
   return DEFAULT_MAX_OUTPUT_MB * MIB;
 }
 
@@ -217,6 +217,146 @@ function scrubRecord(values: Record<string, string> | undefined, tokenize: Token
   return out;
 }
 
+interface Stage<T> {
+  outcome: ProcessOutcome;
+  toolVersion: string | null;
+  envOverrides: Record<string, string>;
+  envPassthrough: string[];
+  raw: RawOutput | null;
+  parsed: ParseResult<T>;
+  classification: Classification;
+}
+
+function notRunStage<T>(problem: string | null, deps: RunToolDeps): Stage<T> {
+  const now = deps.clock();
+  const reason = problem ?? 'invalid invocation';
+  return {
+    outcome: {
+      exitCode: null,
+      signal: null,
+      stdout: Buffer.alloc(0),
+      stderr: Buffer.alloc(0),
+      stdoutTruncated: false,
+      timedOut: false,
+      startedAt: now,
+      endedAt: now,
+    },
+    toolVersion: null,
+    envOverrides: {},
+    envPassthrough: [],
+    raw: null,
+    parsed: { ok: false, error: reason },
+    classification: { status: 'failed', exitClass: 'not-run', cause: 'spawn-error', causeDetail: reason },
+  };
+}
+
+async function captureRaw(
+  inv: ToolInvocation,
+  outcome: ProcessOutcome,
+  workDir: string,
+  maxOutputBytes: number,
+): Promise<{ raw: RawOutput | null; reportProblem: string | null }> {
+  if (outcome.spawnErrorCode !== undefined) return { raw: null, reportProblem: null };
+  if (inv.outputFrom === 'stdout') {
+    const truncated = outcome.stdoutTruncated || outcome.stdout.length > maxOutputBytes;
+    return { raw: { bytes: outcome.stdout.subarray(0, maxOutputBytes), truncated }, reportProblem: null };
+  }
+  const report = await readReport(inv.outputFrom.file, inv.cwd, workDir, maxOutputBytes);
+  if (report.kind === 'ok') return { raw: report.output, reportProblem: null };
+  return { raw: null, reportProblem: report.kind === 'rejected' ? 'report path rejected' : 'report not produced' };
+}
+
+async function executeStage<T>(
+  inv: ToolInvocation,
+  policy: ToolPolicy<T>,
+  deps: RunToolDeps,
+  workDir: string,
+  maxOutputBytes: number,
+  tokenize: Tokenizer,
+): Promise<Stage<T>> {
+  const built = buildToolEnv(policy.tool, workDir, process.env);
+  const extra = inv.envOverrides ?? {};
+  const env: Record<string, string> = { ...built.env, ...extra };
+  const envOverrides = { ...built.overrides, ...extra };
+  const envPassthrough = built.passthrough.filter((name) => !(name in extra));
+
+  const probe = await safeRun(
+    deps.runner,
+    {
+      file: policy.tool,
+      args: [...policy.versionArgs],
+      cwd: workDir,
+      env,
+      timeoutMs: Math.min(inv.timeoutMs, VERSION_TIMEOUT_MS),
+      maxOutputBytes: VERSION_MAX_BYTES,
+      maxStderrBytes: VERSION_MAX_BYTES,
+    },
+    deps.clock,
+  );
+  const toolVersion = versionFrom(probe, tokenize);
+
+  const outcome = await safeRun(
+    deps.runner,
+    {
+      file: policy.tool,
+      args: [...inv.args],
+      cwd: inv.cwd,
+      env,
+      timeoutMs: inv.timeoutMs,
+      maxOutputBytes,
+      maxStderrBytes: MAX_STDERR_BYTES,
+    },
+    deps.clock,
+  );
+
+  const { raw, reportProblem } = await captureRaw(inv, outcome, workDir, maxOutputBytes);
+  const parsed: ParseResult<T> = raw !== null ? safeParse(policy, raw.bytes) : { ok: false, error: reportProblem ?? 'tool not started' };
+  const classification = override(
+    safeClassify(policy, outcome, parsed),
+    outcome,
+    parsed,
+    raw?.truncated ?? false,
+    policy.tool,
+    inv.timeoutMs,
+  );
+  return { outcome, toolVersion, envOverrides, envPassthrough, raw, parsed, classification };
+}
+
+async function writeOutputArtifact<T>(
+  inv: ToolInvocation,
+  policy: ToolPolicy<T>,
+  deps: RunToolDeps,
+  recordId: string,
+  raw: RawOutput | null,
+  parsed: ParseResult<T>,
+  tokenize: Tokenizer,
+): Promise<ArtifactRef | null> {
+  if (raw === null) return null;
+  const sanitized = safeSanitize(policy, raw.bytes, parsed);
+  const kind = inv.outputFrom === 'stdout' ? 'stdout' : 'report';
+  const ext = sanitized.mediaType === 'application/json' ? 'json' : 'txt';
+  return deps.store.writeArtifact(recordId, `${kind}.${ext}`, tokenizeBytes(sanitized.bytes, tokenize), {
+    mediaType: sanitized.mediaType,
+    rawBytes: raw.bytes.length,
+    rawSha256: sha256Hex(raw.bytes),
+    redactions: sanitized.redactions,
+    truncated: raw.truncated,
+  });
+}
+
+async function writeStderrArtifact(deps: RunToolDeps, recordId: string, outcome: ProcessOutcome, tokenize: Tokenizer): Promise<ArtifactRef | null> {
+  if (outcome.stderr.length === 0) return null;
+  const capped = outcome.stderr.subarray(0, MAX_STDERR_BYTES);
+  const redacted = redactSecrets(capped.toString('utf8'));
+  return deps.store.writeArtifact(recordId, 'stderr.txt', Buffer.from(tokenize(redacted.text), 'utf8'), {
+    mediaType: 'text/plain',
+    rawBytes: outcome.stderr.length,
+    rawSha256: sha256Hex(outcome.stderr),
+    redactions: redacted.redactions,
+    truncated: outcome.stderr.length >= MAX_STDERR_BYTES,
+  });
+}
+
 export const runTool: RunTool = async <T>(
   inv: ToolInvocation,
   policy: ToolPolicy<T>,
@@ -229,113 +369,15 @@ export const runTool: RunTool = async <T>(
   const maxOutputBytes = inv.maxOutputBytes ?? defaultMaxOutputBytes();
   const problem = precheck(inv, workDir, maxOutputBytes);
 
-  let outcome: ProcessOutcome;
-  let toolVersion: string | null = null;
-  let envOverrides: Record<string, string> = {};
-  let envPassthrough: string[] = [];
-  let raw: RawOutput | null = null;
-  let parsed: ParseResult<T>;
-  let classification: Classification;
+  const stage: Stage<T> =
+    problem !== null || workDir === null
+      ? notRunStage<T>(problem, deps)
+      : await executeStage(inv, policy, deps, workDir, maxOutputBytes, tokenize);
+  const { outcome, toolVersion, envOverrides, envPassthrough, raw, parsed } = stage;
+  let { classification } = stage;
 
-  if (problem !== null || workDir === null) {
-    const now = deps.clock();
-    outcome = {
-      exitCode: null,
-      signal: null,
-      stdout: Buffer.alloc(0),
-      stderr: Buffer.alloc(0),
-      stdoutTruncated: false,
-      timedOut: false,
-      startedAt: now,
-      endedAt: now,
-    };
-    parsed = { ok: false, error: problem ?? 'invalid invocation' };
-    classification = { status: 'failed', exitClass: 'not-run', cause: 'spawn-error', causeDetail: problem ?? 'invalid invocation' };
-  } else {
-    const built = buildToolEnv(policy.tool, workDir, process.env);
-    const extra = inv.envOverrides ?? {};
-    const env: Record<string, string> = { ...built.env, ...extra };
-    envOverrides = { ...built.overrides, ...extra };
-    envPassthrough = built.passthrough.filter((name) => !(name in extra));
-
-    const probe = await safeRun(
-      deps.runner,
-      {
-        file: policy.tool,
-        args: [...policy.versionArgs],
-        cwd: workDir,
-        env,
-        timeoutMs: Math.min(inv.timeoutMs, VERSION_TIMEOUT_MS),
-        maxOutputBytes: VERSION_MAX_BYTES,
-        maxStderrBytes: VERSION_MAX_BYTES,
-      },
-      deps.clock,
-    );
-    toolVersion = versionFrom(probe, tokenize);
-
-    outcome = await safeRun(
-      deps.runner,
-      {
-        file: policy.tool,
-        args: [...inv.args],
-        cwd: inv.cwd,
-        env,
-        timeoutMs: inv.timeoutMs,
-        maxOutputBytes,
-        maxStderrBytes: MAX_STDERR_BYTES,
-      },
-      deps.clock,
-    );
-
-    let reportProblem: string | null = null;
-    if (outcome.spawnErrorCode === undefined) {
-      if (inv.outputFrom === 'stdout') {
-        const truncated = outcome.stdoutTruncated || outcome.stdout.length > maxOutputBytes;
-        raw = { bytes: outcome.stdout.subarray(0, maxOutputBytes), truncated };
-      } else {
-        const report = await readReport(inv.outputFrom.file, inv.cwd, workDir, maxOutputBytes);
-        if (report.kind === 'ok') raw = report.output;
-        else reportProblem = report.kind === 'rejected' ? 'report path rejected' : 'report not produced';
-      }
-    }
-
-    parsed = raw !== null ? safeParse(policy, raw.bytes) : { ok: false, error: reportProblem ?? 'tool not started' };
-    classification = override(
-      safeClassify(policy, outcome, parsed),
-      outcome,
-      parsed,
-      raw?.truncated ?? false,
-      policy.tool,
-      inv.timeoutMs,
-    );
-  }
-
-  let output: ArtifactRef | null = null;
-  if (raw !== null) {
-    const sanitized = safeSanitize(policy, raw.bytes, parsed);
-    const kind = inv.outputFrom === 'stdout' ? 'stdout' : 'report';
-    const ext = sanitized.mediaType === 'application/json' ? 'json' : 'txt';
-    output = await deps.store.writeArtifact(recordId, `${kind}.${ext}`, tokenizeBytes(sanitized.bytes, tokenize), {
-      mediaType: sanitized.mediaType,
-      rawBytes: raw.bytes.length,
-      rawSha256: sha256Hex(raw.bytes),
-      redactions: sanitized.redactions,
-      truncated: raw.truncated,
-    });
-  }
-
-  let stderr: ArtifactRef | null = null;
-  if (outcome.stderr.length > 0) {
-    const capped = outcome.stderr.subarray(0, MAX_STDERR_BYTES);
-    const redacted = redactSecrets(capped.toString('utf8'));
-    stderr = await deps.store.writeArtifact(recordId, 'stderr.txt', Buffer.from(tokenize(redacted.text), 'utf8'), {
-      mediaType: 'text/plain',
-      rawBytes: outcome.stderr.length,
-      rawSha256: sha256Hex(outcome.stderr),
-      redactions: redacted.redactions,
-      truncated: outcome.stderr.length >= MAX_STDERR_BYTES,
-    });
-  }
+  const output = await writeOutputArtifact(inv, policy, deps, recordId, raw, parsed, tokenize);
+  const stderr = await writeStderrArtifact(deps, recordId, outcome, tokenize);
 
   let findingIds: string[] = [];
   if (findingIdsFor !== undefined) {

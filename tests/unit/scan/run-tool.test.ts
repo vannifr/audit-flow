@@ -301,7 +301,7 @@ describe('runTool', () => {
       expect(artifact.bytes.toString('utf8')).not.toContain('/tmp/tessera-abc');
       expect(artifact.bytes.toString('utf8')).toContain('<WORK>');
     }
-    expect(store.artifacts.length).toBe(2);
+    expect(store.artifacts).toHaveLength(2);
   });
 
   it('still writes exactly one record when the runner itself rejects', async () => {

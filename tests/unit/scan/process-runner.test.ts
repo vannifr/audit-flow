@@ -62,12 +62,12 @@ describe('defaultProcessRunner', () => {
   it('does not mark output within the limit as truncated', async () => {
     const out = await defaultProcessRunner(request(['-e', "process.stdout.write('x'.repeat(500))"], { maxOutputBytes: 1000 }));
     expect(out.stdoutTruncated).toBe(false);
-    expect(out.stdout.length).toBe(500);
+    expect(out.stdout).toHaveLength(500);
   });
 
   it('caps stderr at maxStderrBytes', async () => {
     const out = await defaultProcessRunner(request(['-e', "process.stderr.write('e'.repeat(5000))"], { maxStderrBytes: 100 }));
-    expect(out.stderr.length).toBe(100);
+    expect(out.stderr).toHaveLength(100);
   });
 
   it('returns the exit code of the process', async () => {

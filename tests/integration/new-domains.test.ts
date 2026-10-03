@@ -32,7 +32,7 @@ describe('New Domain Activities', () => {
 
     it('should handle invalid URL gracefully', async () => {
       const { findings, result } = await runLighthouse('not-a-url', TEST_WORKFLOW_ID);
-      expect(findings.length).toBe(0);
+      expect(findings).toHaveLength(0);
     });
   });
 
@@ -48,7 +48,7 @@ describe('New Domain Activities', () => {
 
     it('should handle invalid URL gracefully', async () => {
       const { findings, result } = await runAxeAccessibility('not-a-url', TEST_WORKFLOW_ID);
-      expect(findings.length).toBe(0);
+      expect(findings).toHaveLength(0);
     }, 30000);
   });
 

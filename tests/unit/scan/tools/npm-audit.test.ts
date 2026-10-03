@@ -206,8 +206,8 @@ describe('runNpmAuditScan applicability', () => {
     expect(f.requests).toHaveLength(0);
   });
 
-  it('fails when the manifest cannot be read', async () => {
-    if (process.getuid?.() === 0) return;
+  it('fails when the manifest cannot be read', async ({ skip }) => {
+    if (process.getuid?.() === 0) skip();
     await withManifest();
     await chmod(path.join(repoDir, 'package.json'), 0o000);
     const f = fakeRunner(outcome());
@@ -329,7 +329,7 @@ describe('runNpmAuditScan results', () => {
     ]);
     expect(result.findings[0].title).toBe('a: Mod issue');
     expect(result.findings[1].title).toBe('b: known vulnerability');
-    expect(result.findings[3].title.length).toBe(3 + 120);
+    expect(result.findings[3].title).toHaveLength(3 + 120);
   });
 
   it('reports clean runs as completed without findings', async () => {

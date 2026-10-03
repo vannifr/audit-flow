@@ -69,9 +69,10 @@ export const defaultProcessRunner: ProcessRunner = (req: ProcessRequest) =>
       const stdoutTruncated = maxBufferHit && stdout.length >= req.maxOutputBytes;
       if (stdout.length > req.maxOutputBytes) stdout = stdout.subarray(0, req.maxOutputBytes);
 
+      const fallbackSignal = maxBufferHit ? 'SIGKILL' : null;
       const outcome: ProcessOutcome = {
         exitCode: typeof code === 'number' ? code : null,
-        signal: typeof err.signal === 'string' ? err.signal : maxBufferHit ? 'SIGKILL' : null,
+        signal: typeof err.signal === 'string' ? err.signal : fallbackSignal,
         stdout,
         stderr,
         stdoutTruncated,
