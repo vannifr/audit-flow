@@ -34,3 +34,5 @@ coverage/
 reports/
 # Demo run output
 demo/last-run.json
+tsconfig.tsbuildinfo
+.vitest/

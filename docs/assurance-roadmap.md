@@ -53,6 +53,22 @@ Elk item wordt een IIKit-feature wanneer het aan de beurt is. `Bron` verwijst na
 | 016 | GenAI-advies onder controle (triage, herstelplan, kruisvalidatie) | 4 | #19, constitution IX | 013, 015 | niet gestart |
 | 017 | Onafhankelijke verificatie en externe penetratietest | 4 | n.v.t. | 013 | niet gestart |
 | 018 | Flowmetrics-script (demo-recall, uren CI rood, doorlooptijd, deviaties) naar `docs/metrics/` | 1 | `docs/agile/working-agreement.md` | 004 | niet gestart |
+| 019 | Hernoemen van `audit-flow` naar `tessera` (package, README, CLI, daarna GitHub-repo, Woodpecker-koppeling en Sonar-sleutel; uitgaand deel alleen na bevestiging) | 1 | naamsbeslissing 2026-10-03 | 004 MVP (v0.2.0) | goedgekeurd 2026-10-03, uitvoering direct na v0.2.0 |
+| 020 | Mutation testing op Tier C-modules als gate | 1 | praktijkanalyse 2026-10-03 | 004 | niet gestart |
+| 021 | Threat model (STRIDE) voor framework en bronkant, als basis voor aanvalsfixtures | 1 | idem | n.v.t. | niet gestart |
+| 022 | Architectuurregels als test (zuivere modules, `child_process` alleen in de process-runner) en complexiteits- en groottelint | 1 | idem | 004 | niet gestart |
+| 023 | Risicoregister (RAID) `docs/agile/raid.md` | 1 | idem | n.v.t. | niet gestart |
+| 024 | Leerlus met ontwerppartner: hypothese en riskiest-assumption-test per slice | 1 | Lean Startup | 004 MVP | niet gestart |
+| 025 | Incidentnotities (blameless, 5x waarom): stale worker, quota-uitputting | 1 | idem | n.v.t. | niet gestart |
+| 026 | Glossary en ADR's | 1 | idem | n.v.t. | niet gestart |
+| 027 | Release en supply chain: tags, changelog, SBOM, gesigneerde releases | 2 | idem | 004 MVP | niet gestart |
+| 028 | Property-based tests voor redactie, manifest en verify (nieuwe dev-dependency, eerst akkoord) | 2 | idem | 004 | niet gestart |
+| 029 | Performance-budget als test (evidence-overhead) en fault injection | 2 | idem | 004, 007 | niet gestart |
+| 030 | DPIA en privacy by design voor bewijs met klantcode, runbook en SLO's voor het framework | 2 | idem | 010 | niet gestart |
+| 031 | Evalueer in-toto, Witness en Sigstore als evidence-attestatieformaat boven een eigen formaat (onderdeel van 013) | 3 | zoekresultaten 2026-10-03 | 004 | niet gestart |
+| 032 | DefectDojo-export van Tessera-bevindingen en bewijsverwijzingen (afnemer, geen vervanger) | 3 | idem | 004 | niet gestart |
+| 033 | Beoordeel de Compound Engineering-plugin (multi-agent review, lessen vastleggen) op licentie, onderhoud en rechten | 1 | idem | n.v.t. | niet gestart |
+| 034 | Distilleer uit de agentic retro van 004 een eigen ontwikkelaanpak (playbook, skills, templates) en beoordeel of die als product of open-source bijdrage taugt | 1 | verzoek 2026-10-03 | 004 klaar (T051) | niet gestart |
 
 Gevolg voor de volgorde: niveau 2 bestaat uit items 005–012 en is pas af als alle exitcriteria groen zijn.
 Volgorde binnen een niveau volgt risico (RCE en toegang eerst: 006 en 008), niet de nummering.

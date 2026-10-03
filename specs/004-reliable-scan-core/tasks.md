@@ -193,6 +193,8 @@ each marked `superseded by FR-xxx` in the commit body. No adapters with the old 
 - [ ] T050 Create GitHub milestones L1 to L4, labels per level and one issue per roadmap item with a link to its `specs/NNN` folder, using `/iikit-08-taskstoissues`
   - Tier A. Outward-facing; approved by the user on 2026-10-03.
 
+- [ ] T051 Hold a retrospective on the agentic way of working used in this implementation: which approach helped, which did not, and the opportunity to define and distil an own method or system from it (playbook, skills, templates); inputs are `docs/retro/004-agentic-notes.md` (kept running during the work), the numbers per slice and the commit history; output is `docs/retro/004-agentic-retro.md` and a proposal for a distilled approach
+  - Tier B for the write-up; the conclusions are decided with the product owner. Files: `docs/retro/004-agentic-notes.md`, `docs/retro/004-agentic-retro.md`. Runs after the last story of the slice, before the next feature starts.
 ---
 
 ## Dependencies and execution order
