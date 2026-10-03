@@ -182,13 +182,13 @@ each marked `superseded by FR-xxx` in the commit body. No adapters with the old 
   - Tier A.
 - [ ] T045 Forbid `child_process` `exec` and `execSync` with an ESLint restricted-imports rule and prove it fails on a temporary violation in `.eslintrc.json`
   - Tier A. Consumes: T042, T043, T044.
-- [ ] T046 Run the structured security review after T013 and after T022 (payloads: workflowId `x;id>...;#`, hostile `.npmrc`, symlink in bundle, key in evidence root) and record findings in `docs/review-004-security.md`
+- [x] T046 Run the structured security review after T013 and after T022 (payloads: workflowId `x;id>...;#`, hostile `.npmrc`, symlink in bundle, key in evidence root) and record findings in `docs/review-004-security.md`
   - Tier C (independent Opus pass).
 - [x] T047 Raise the coverage floors to the measurement (done 2026-10-03: global 84/74/90/87) and set the SonarQube gate back to blocking when it is green (NOT done: the gate still fails, the failing condition is not visible without dashboard access; the deviation stays until 2026-11-01); update README deviations
   - Tier B. Consumes: constitution X, the 2026-11-01 deadline.
 - [x] T048 Document `TESSERA_EVIDENCE_ROOT`, `TESSERA_SIGNING_KEY`, `TESSERA_REQUIRE_SIGNATURE`, `evidence:verify`, `evidence:keygen`, scanner status meanings in README and AGENTS.md
   - Tier A.
-- [ ] T049 Update `docs/assurance-roadmap.md` status for item 004, write the retrospective in `docs/retro/004.md` (what worked, what broke, metrics: demo recall, CI red time, deviations), and tag `v0.2.0` per slice
+- [x] T049 Update `docs/assurance-roadmap.md` status for item 004, write the retrospective in `docs/retro/004.md` (what worked, what broke, metrics: demo recall, CI red time, deviations), and tag `v0.2.0` per slice
   - Tier B.
 - [x] T050 Create GitHub milestones L1 to L4, labels per level and one issue per roadmap item with a link to its `specs/NNN` folder, using `/iikit-08-taskstoissues` Done 2026-10-03: milestones L1 to L4, labels level-1 to level-4 and backlog, 31 issues (#1 closed as delivered). A GitHub Project board was not created (the gh token lacks the project scope); filter the issues by milestone and label as the board until then.
   - Tier A. Outward-facing; approved by the user on 2026-10-03.
