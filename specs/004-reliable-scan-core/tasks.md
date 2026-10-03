@@ -43,12 +43,12 @@ each marked `superseded by FR-xxx` in the commit body. No adapters with the old 
   - Tier A (mechanical, no judgment). Files: those folders. Produces: layout from plan.md "Project Structure".
 - [ ] T002 [P] Record tool fixtures in `tests/fixtures/tools/` from real runs on the demo and on a clean app: npm audit (vulnerable, ENOLOCK), gitleaks (clean, leak with exit 42, error), semgrep (clean, results, crash exit 2)
   - Tier B (needs judgment which output is representative). Files: `tests/fixtures/tools/*.json`. Produces: input for policy unit tests.
-- [ ] T003 [P] Make cucumber load `specs/004-reliable-scan-core/tests/step_definitions/` and add a failing skeleton (undefined steps) in `.cucumber.js`; the `.feature` files stay untouched
+- [x] T003 [P] Make cucumber load `specs/004-reliable-scan-core/tests/step_definitions/` and add a failing skeleton (undefined steps) in `.cucumber.js`; the `.feature` files stay untouched
   - Tier B. Files: `.cucumber.js`, `specs/004-reliable-scan-core/tests/step_definitions/skeleton.steps.ts`. Produces: BDD runner that executes 004 scenarios.
 - [x] T004 [P] Add `test:tools` script and `tests/contract/vitest.config.ts` (real tools, not part of `verify`); document in README
   - Tier A. Files: `package.json`, `tests/contract/vitest.config.ts`, `README.md`.
-- [ ] T005 Add `npm run test:bdd` to `verify:full` only after T003 shows the 004 scenarios as undefined (red), never before
-  - Tier A. Files: `package.json`. Consumes: T003.
+- [ ] T005 Wire a `test:bdd:done` script (cucumber tag expression listing only finished stories) into `verify:full` when US1 is green (T024), and extend its tags at the end of each story; the full `test:bdd` stays outside `verify:full` until every story is green
+  - Tier A. Files: `package.json`. Reason: a new gate must be proven clean before it blocks the trunk (ratchet, constitution XII).
 
 ---
 
