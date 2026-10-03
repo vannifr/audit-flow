@@ -47,3 +47,10 @@ Start of the slice: 2026-10-03 13:48 (timebox: one working day).
 - The automated security-review plugin twice reported code that did not exist (an ENOENT mapped to `completed` in run-tool.ts; a loop over an empty array in sign.ts). Both were checked against the file and were false. Rule: an automatic finding is a lead, not a fact; verify the line before acting, and keep the mutation tests that already prove the control works.
 - Concurrent agents sharing a scratchpad file name (`mutate.py`) overwrote each other's mutation script. Rule: every agent works in its own named scratchpad subfolder.
 - A second cross-family review (qwen3-max, only 14 tool calls) found one real gap (the verifier printed VERIFIED without a checked signature) and nine items that were minor or not applicable: a larger model is not automatically a deeper reviewer; depth follows from how many files it actually reads.
+
+## 2026-10-03 evening: Sonar cleanup (issue 32)
+- opencode (qwen3-coder-plus) reverted the uncommitted change of the previous opencode run while restoring its own mutation, the known `git checkout` incident. Rule: one opencode run per commit, never a second run on a dirty tree. The builder also reported a test total (943) that did not match the run (799 in tests/unit); both claims were rechecked by running the commands.
+- A differential harness (old against new code on 174k generated inputs) plus mutation-hardened tests made a refactor of Tier C code reviewable; it found zero behavior differences and 40 of 42 mutations were killed, the 2 survivors equivalent.
+- The demo gate printed PASSED while the script exited 1 because sealed bundle folders (0500) could not be removed; green output and exit code must be checked together.
+- Tier A work this small (about 25 mechanical edits) was faster by script than by an opencode round; route to opencode only when the edit set is large or judgment-free but unspecified.
+- Sonar rule S1607 asks for a recorded reason for skipped tests; the constitution already demands cause and owner, so the reason went in a comment.
