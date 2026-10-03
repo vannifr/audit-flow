@@ -47,7 +47,7 @@ each marked `superseded by FR-xxx` in the commit body. No adapters with the old 
   - Tier B. Files: `.cucumber.js`, `specs/004-reliable-scan-core/tests/step_definitions/skeleton.steps.ts`. Produces: BDD runner that executes 004 scenarios.
 - [x] T004 [P] Add `test:tools` script and `tests/contract/vitest.config.ts` (real tools, not part of `verify`); document in README
   - Tier A. Files: `package.json`, `tests/contract/vitest.config.ts`, `README.md`.
-- [ ] T005 Wire a `test:bdd:done` script (cucumber tag expression listing only finished stories) into `verify:full` when US1 is green (T024), and extend its tags at the end of each story; the full `test:bdd` stays outside `verify:full` until every story is green
+- [x] T005 Wire a `test:bdd:done` script (cucumber tag expression listing only finished stories) into `verify:full` when US1 is green (T024), and extend its tags at the end of each story; the full `test:bdd` stays outside `verify:full` until every story is green
   - Tier A. Files: `package.json`. Reason: a new gate must be proven clean before it blocks the trunk (ratchet, constitution XII).
 
 ---
@@ -102,7 +102,7 @@ each marked `superseded by FR-xxx` in the commit body. No adapters with the old 
   - Tier C (the outcome rule is the core of principle VII). Consumes: T007, T018, T019, T020. Produces: `AuditResult.outcome`.
 - [x] T023 [US1] Put outcome and scanner status table at the top of the report [TS-007] in `src/activities/index.ts` (`generateReport`) and `src/scan/report.ts`
   - Tier B. Consumes: T022. Produces: report layout per FR-016.
-- [ ] T024 [US1] Write step definitions for `honest-scan-outcome.feature` and run them green in `specs/004-reliable-scan-core/tests/step_definitions/honest-scan-outcome.steps.ts` [TS-001, TS-002, TS-003, TS-004, TS-005, TS-006, TS-007, TS-008, TS-009, TS-010, TS-011]
+- [x] T024 [US1] Write step definitions for `honest-scan-outcome.feature` and run them green in `specs/004-reliable-scan-core/tests/step_definitions/honest-scan-outcome.steps.ts` [TS-001, TS-002, TS-003, TS-004, TS-005, TS-006, TS-007, TS-008, TS-009, TS-010, TS-011]
   - Tier B. Consumes: T003. Rule: no tautological steps; each Then asserts on real output.
 
 ---

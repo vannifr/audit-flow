@@ -12,6 +12,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:bdd": "cucumber-js --config .cucumber.js",
+    "test:bdd:done": "cucumber-js --config .cucumber.js --tags \"@US-001\"",
     "test:tools": "vitest run --config tests/contract/vitest.config.ts",
     "test:all": "npm run test && npm run test:bdd",
     "lint": "eslint src --ext .ts",
@@ -24,7 +25,7 @@
     "security:sast": "sh scripts/ci/sast.sh",
     "security:licenses": "sh scripts/ci/licenses.sh",
     "security": "npm run security:deps && npm run security:secrets && npm run security:sast && npm run security:licenses",
-    "verify:full": "npm run verify && npm run security",
+    "verify:full": "npm run verify && npm run test:bdd:done && npm run security",
     "test:bdd:legacy": "cucumber-js --config .cucumber.js --profile legacy"
   },
   "dependencies": {
