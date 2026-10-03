@@ -1,4 +1,4 @@
-# Tessera (audit-flow)
+# Tessera
 
 > Enterprise-grade application security audit framework powered by Temporal.io
 

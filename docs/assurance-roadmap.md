@@ -53,7 +53,7 @@ Elk item wordt een IIKit-feature wanneer het aan de beurt is. `Bron` verwijst na
 | 016 | GenAI-advies onder controle (triage, herstelplan, kruisvalidatie) | 4 | #19, constitution IX | 013, 015 | niet gestart |
 | 017 | Onafhankelijke verificatie en externe penetratietest | 4 | n.v.t. | 013 | niet gestart |
 | 018 | Flowmetrics-script (demo-recall, uren CI rood, doorlooptijd, deviaties) naar `docs/metrics/` | 1 | `docs/agile/working-agreement.md` | 004 | niet gestart |
-| 019 | Hernoemen van `audit-flow` naar `tessera` (package, README, CLI, daarna GitHub-repo, Woodpecker-koppeling en Sonar-sleutel; uitgaand deel alleen na bevestiging) | 1 | naamsbeslissing 2026-10-03 | 004 MVP (v0.2.0) | goedgekeurd 2026-10-03, uitvoering direct na v0.2.0 |
+| 019 | Hernoemen van `audit-flow` naar `tessera` (package, README, CLI, daarna GitHub-repo, Woodpecker-koppeling en Sonar-sleutel; uitgaand deel alleen na bevestiging) | 1 | naamsbeslissing 2026-10-03 | 004 MVP (v0.2.0) | uitgevoerd 2026-10-03 |
 | 020 | Mutation testing op Tier C-modules als gate | 1 | praktijkanalyse 2026-10-03 | 004 | niet gestart |
 | 021 | Threat model (STRIDE) voor framework en bronkant, als basis voor aanvalsfixtures | 1 | idem | n.v.t. | niet gestart |
 | 022 | Architectuurregels als test (zuivere modules, `child_process` alleen in de process-runner) en complexiteits- en groottelint | 1 | idem | 004 | niet gestart |

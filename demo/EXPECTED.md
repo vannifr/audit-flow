@@ -4,7 +4,7 @@ Dit bestand is de bron voor recall en precisie van `npm run demo`. Het is vastge
 eerste auditrun en wordt niet aangepast om een run groen te krijgen. Een gemist defect is een
 bevinding in het auditsysteem, geen fout in deze lijst.
 
-Ernstschaal van audit-flow: P0 = kritiek, P1 = hoog, P2 = middel, P3 = laag.
+Ernstschaal van Tessera: P0 = kritiek, P1 = hoog, P2 = middel, P3 = laag.
 
 ## `demo/vulnerable-app` (verwacht: alle defecten gevonden)
 

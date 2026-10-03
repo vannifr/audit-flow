@@ -1,4 +1,4 @@
-# Agent instructions (audit-flow, project Tessera)
+# Agent instructions (project Tessera)
 
 ## Commands
 - `npm run verify`: build, test with coverage, lint (must pass before every commit)

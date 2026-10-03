@@ -1,4 +1,4 @@
-# Woodpecker CI for audit-flow
+# Woodpecker CI for tessera
 # Parity rule: every step calls the same npm script or sh script as local verification.
 # Local equivalents: npm run verify (build, test:coverage, lint) and npm run security.
 # Known gaps with a local equivalent that cannot run offline: see README "CI and local parity".
@@ -61,4 +61,4 @@ steps:
       SONAR_TOKEN:
         from_secret: sonar_token
     commands:
-      - sonar-scanner -Dsonar.projectKey=audit-flow -Dsonar.sources=src -Dsonar.tests=tests -Dsonar.test.inclusions=**/*.test.ts -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info -Dsonar.coverage.exclusions=**/*.test.ts,**/test/**,**/tests/**,demo/** -Dsonar.exclusions=demo/** -Dsonar.qualitygate.wait=true -Dsonar.qualitygate.timeout=300
+      - sonar-scanner -Dsonar.projectKey=tessera -Dsonar.sources=src -Dsonar.tests=tests -Dsonar.test.inclusions=**/*.test.ts -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info -Dsonar.coverage.exclusions=**/*.test.ts,**/test/**,**/tests/**,demo/** -Dsonar.exclusions=demo/** -Dsonar.qualitygate.wait=true -Dsonar.qualitygate.timeout=300

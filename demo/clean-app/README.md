@@ -1,6 +1,6 @@
 # demo-clean-app
 
-Minimal Express service used as the false-positive control for the audit-flow demo.
+Minimal Express service used as the false-positive control for the Tessera demo.
 
 - `GET /health` returns service status.
 - `GET /greet?name=` returns an HTML-escaped greeting.

@@ -124,7 +124,7 @@ function sweepSecrets(roots) {
 }
 
 async function main() {
-  workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'auditflow-demo-'));
+  workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tessera-demo-'));
   const fixtureRoot = path.join(workDir, 'fixtures');
   fs.mkdirSync(fixtureRoot);
   const reportDir = path.join(workDir, 'reports');

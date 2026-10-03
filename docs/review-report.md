@@ -1,4 +1,4 @@
-# Reviewrapport audit-flow
+# Reviewrapport Tessera (voorheen audit-flow)
 
 Datum: 2026-10-02. Basis: `main` op `9827a23` plus de demo-commits `20aad99`, `345e3f8`, `daf45af`.
 Reviewer: Claude (Sonnet 5.5), met Opus-subagent voor de securityanalyse. Bewijs en ruwe logs: scratchpad van de sessie (`fase1-checks.md`, `fase1-ci.md`, `fase3-security.md`, `fase34-static.md`, `fase2-scenarios.log`, `demo-run3.log`).

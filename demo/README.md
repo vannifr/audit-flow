@@ -1,4 +1,4 @@
-# audit-flow demo
+# Tessera demo
 
 Reproduceerbare end-to-end run van het auditsysteem tegen twee kleine apps, met een vaste
 grondwaarheid.
@@ -35,7 +35,7 @@ met recall (gevonden en gevonden met juiste ernst); voor `clean-app` het aantal 
 
 Exitcode 0 betekent: alle geplande defecten gevonden en nul bevindingen op `clean-app`. Exitcode 1 is een afwijking,
 2 een omgevingsfout (bijvoorbeeld ontbrekende tool of bezette poort). De ruwe resultaten staan na afloop in
-`demo/last-run.json` (niet gecommit). `DEMO_KEEP_WORKDIR=1` bewaart logs en rapporten in `/tmp/auditflow-demo-*`.
+`demo/last-run.json` (niet gecommit). `DEMO_KEEP_WORKDIR=1` bewaart logs en rapporten in `/tmp/tessera-demo-*`.
 
 ## Kwaliteitsgates
 

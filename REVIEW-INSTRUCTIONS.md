@@ -1,7 +1,7 @@
 # Review Instructies — Audit Flow
 
-**Project:** audit-flow  
-**Repository:** https://github.com/vannifr/audit-flow  
+**Project:** Tessera  
+**Repository:** https://github.com/vannifr/tessera  
 **CI:** https://ci.vannifr.ovh/repos/25  
 **Datum:** 2026-10-02  
 **Reviewer:** qwen3-max-2026-01-23 (onafhankelijke review)
