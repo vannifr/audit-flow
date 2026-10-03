@@ -1,0 +1,16 @@
+{
+  "provenance": "synthetic: reproduces the failure observed on 2026-10-02 when semgrep-core crashed (io_uring) and exited 2 with an error entry and no results; the real crash no longer reproduces with EIO_BACKEND=posix",
+  "args": [
+    "semgrep",
+    "--metrics=off",
+    "--config",
+    "p/security-audit",
+    "--json",
+    "--quiet",
+    "."
+  ],
+  "cwd": "/work/vuln",
+  "exitCode": 2,
+  "stdout": "{\"version\": \"1.178.0\", \"results\": [], \"errors\": [{\"code\": 2, \"level\": \"error\", \"type\": \"SemgrepError\", \"message\": \"semgrep-core exit code: 2\"}], \"paths\": {\"scanned\": []}}",
+  "stderr": "semgrep-core exit code: 2"
+}

@@ -1,0 +1,11 @@
+{
+  "args": [
+    "npm",
+    "audit",
+    "--json"
+  ],
+  "cwd": "/work/nolock",
+  "exitCode": 1,
+  "stdout": "{\n  \"error\": {\n    \"code\": \"ENOLOCK\",\n    \"summary\": \"This command requires an existing lockfile.\",\n    \"detail\": \"Try creating one first with: npm i --package-lock-only\\nOriginal error: loadVirtual requires existing shrinkwrap file\"\n  }\n}\n",
+  "stderr": "npm error code ENOLOCK\nnpm error audit This command requires an existing lockfile.\nnpm error audit Try creating one first with: npm i --package-lock-only\nnpm error audit Original error: loadVirtual requires existing shrinkwrap file\nnpm error A complete log of this run can be found in: /home/user/.npm/_logs/2026-10-03T11_48_46_586Z-debug-0.log\n"
+}

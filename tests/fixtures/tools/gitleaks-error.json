@@ -1,0 +1,18 @@
+{
+  "args": [
+    "gitleaks",
+    "dir",
+    "--no-banner",
+    "--exit-code",
+    "42",
+    "--report-format",
+    "json",
+    "--report-path",
+    "-",
+    "/nonexistent-path-zz9"
+  ],
+  "cwd": "/work",
+  "exitCode": 1,
+  "stdout": "",
+  "stderr": "\u001b[90m1:48PM\u001b[0m \u001b[31mFTL\u001b[0m \u001b[1mstat /nonexistent-path-zz9: no such file or directory\u001b[0m\n"
+}

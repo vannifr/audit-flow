@@ -1,0 +1,19 @@
+{
+  "args": [
+    "gitleaks",
+    "dir",
+    "--no-banner",
+    "--redact=100",
+    "--exit-code",
+    "42",
+    "--report-format",
+    "json",
+    "--report-path",
+    "-",
+    "."
+  ],
+  "cwd": "/work/clean",
+  "exitCode": 0,
+  "stdout": "[]\n",
+  "stderr": "\u001b[90m1:48PM\u001b[0m \u001b[32mINF\u001b[0m \u001b[1mscanned ~1748 bytes (1.75 KB) in 2.58ms\u001b[0m\n\u001b[90m1:48PM\u001b[0m \u001b[32mINF\u001b[0m \u001b[1mno leaks found\u001b[0m\n"
+}
