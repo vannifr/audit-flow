@@ -149,4 +149,34 @@ describe('buildToolEnv', () => {
     expect(result.env.GIT_CONFIG_KEY_99).toBe('k99');
     expect(Object.keys(result.env)).not.toContain('GIT_CONFIG_KEY_100');
   });
+
+  describe('python user site for semgrep', () => {
+    it('derives PYTHONUSERBASE from the worker HOME because HOME itself points into the work dir', () => {
+      const result = buildToolEnv('semgrep', WORK, { PATH: '/usr/bin', HOME: '/home/operator' });
+      expect(result.env.PYTHONUSERBASE).toBe('/home/operator/.local');
+      expect(result.env.HOME).toBe(`${WORK}/home`);
+    });
+
+    it('prefers an explicit worker PYTHONUSERBASE', () => {
+      const result = buildToolEnv('semgrep', WORK, { PATH: '/usr/bin', HOME: '/home/operator', PYTHONUSERBASE: '/opt/py' });
+      expect(result.env.PYTHONUSERBASE).toBe('/opt/py');
+    });
+
+    it('records only the name, never the value, and never as an override', () => {
+      const result = buildToolEnv('semgrep', WORK, { PATH: '/usr/bin', HOME: '/home/operator' });
+      expect(result.passthrough).toContain('PYTHONUSERBASE');
+      expect(Object.keys(result.overrides)).not.toContain('PYTHONUSERBASE');
+    });
+
+    it('ignores a relative or malformed value', () => {
+      expect(buildToolEnv('semgrep', WORK, { PATH: '/usr/bin', PYTHONUSERBASE: 'relative/dir' }).env.PYTHONUSERBASE).toBeUndefined();
+      expect(buildToolEnv('semgrep', WORK, { PATH: '/usr/bin', PYTHONUSERBASE: '/a\nb' }).env.PYTHONUSERBASE).toBeUndefined();
+    });
+
+    it('is not set for other tools', () => {
+      for (const tool of ['git', 'npm', 'gitleaks'] as const) {
+        expect(buildToolEnv(tool, WORK, { PATH: '/usr/bin', HOME: '/home/operator' }).env.PYTHONUSERBASE).toBeUndefined();
+      }
+    });
+  });
 });

@@ -60,6 +60,14 @@ export const buildToolEnv: BuildToolEnv = (tool, workDir, workerEnv) => {
     passthrough.push(name);
   }
 
+  if (tool === 'semgrep') {
+    const userBase = workerEnv.PYTHONUSERBASE ?? (workerEnv.HOME ? path.posix.join(workerEnv.HOME, '.local') : undefined);
+    if (userBase !== undefined && path.posix.isAbsolute(userBase) && !/[\0\r\n]/.test(userBase)) {
+      env.PYTHONUSERBASE = userBase;
+      passthrough.push('PYTHONUSERBASE');
+    }
+  }
+
   Object.assign(env, overrides);
   return { env, overrides, passthrough };
 };
