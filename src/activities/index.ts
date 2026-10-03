@@ -16,7 +16,7 @@ import {
 } from 'fs';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import * as os from 'os';
+import * as os from 'node:os';
 import * as lifecycle from '../scan/lifecycle';
 import type { AuditRun, FetchedSource } from '../scan/lifecycle';
 import { defaultProcessRunner } from '../scan/process-runner';
@@ -25,7 +25,6 @@ import { redactSecrets } from '../evidence/redact';
 import { renderOutcomeBlock } from '../report/outcome-block';
 import type { ReportSignature } from '../report/outcome-block';
 import { walkSourceFiles, readSourceFile } from '../scan/safe-walk';
-import { validateRepoUrl } from '../scan/repo-url';
 import { sanitizeOverrideAttempts, steeringCounts } from '../scan/source-probe';
 import type { OverrideAttempt } from '../evidence/types';
 import { createScanActivities } from '../scan/activities';
@@ -39,7 +38,6 @@ import type {
   ReviewResult,
   Evidence,
   Remediation,
-  FindingCategory,
   ComplianceFramework,
 } from '../types';
 
@@ -110,7 +108,7 @@ export function getMissingOptionalTools(status: ToolStatus[]): ToolStatus[] {
 
 // ==================== REPOSITORY ACTIVITIES ====================
 
-export { validateRepoUrl };
+export { validateRepoUrl } from '../scan/repo-url';
 
 // ==================== DISCOVERY ACTIVITIES ====================
 
@@ -285,7 +283,7 @@ const REVIEW_PATTERNS: ReviewPattern[] = [
 function lineOf(content: string, index: number): number {
   let line = 1;
   for (let i = 0; i < index; i++) {
-    if (content.charCodeAt(i) === 10) line++;
+    if (content.codePointAt(i) === 10) line++;
   }
   return line;
 }
@@ -501,10 +499,17 @@ interface ReportInput {
 
 function productName(): string {
   const raw = Array.from(process.env.TESSERA_PRODUCT_NAME ?? '')
-    .map((c) => (c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127 || '|#`*_[]<>'.includes(c) ? ' ' : c))
+    .map((c) => ((c.codePointAt(0) ?? 0) < 32 || c.codePointAt(0) === 127 || '|#`*_[]<>'.includes(c) ? ' ' : c))
     .join('');
   const configured = raw.replace(/\s+/g, ' ').trim().slice(0, 64);
   return configured.length > 0 ? configured : 'Tessera';
+}
+
+function riskLevelFor(p0Count: number, p1Count: number, p2Count: number, outcome: ReportInput['outcome']): string {
+  if (p0Count > 0) return 'CRITICAL';
+  if (p1Count > 0) return 'HIGH';
+  if (p2Count > 0) return 'MEDIUM';
+  return outcome === 'incomplete' ? 'UNDETERMINED (audit incomplete)' : 'LOW';
 }
 
 function generateMarkdownReport(input: ReportInput): string {
@@ -512,16 +517,7 @@ function generateMarkdownReport(input: ReportInput): string {
   const p1Count = input.findings.filter((f: Finding) => f.severity === 'P1').length;
   const p2Count = input.findings.filter((f: Finding) => f.severity === 'P2').length;
   const p3Count = input.findings.filter((f: Finding) => f.severity === 'P3').length;
-  const riskLevel =
-    p0Count > 0
-      ? 'CRITICAL'
-      : p1Count > 0
-        ? 'HIGH'
-        : p2Count > 0
-          ? 'MEDIUM'
-          : input.outcome === 'incomplete'
-            ? 'UNDETERMINED (audit incomplete)'
-            : 'LOW';
+  const riskLevel = riskLevelFor(p0Count, p1Count, p2Count, input.outcome);
 
   const outcomeBlock = renderOutcomeBlock({
     outcome: input.outcome,
@@ -1454,7 +1450,7 @@ export async function checkCodeQuality(
           `cd ${repoPath} && npx tsc --noEmit 2>&1 | grep -c "error TS"`,
           { timeout: 60000 }
         );
-        result.typeErrors = parseInt(stdout.trim()) || 0;
+        result.typeErrors = Number.parseInt(stdout.trim()) || 0;
 
         if (result.typeErrors > 0) {
           findings.push({
@@ -1490,7 +1486,7 @@ export async function checkCodeQuality(
     );
 
     const longFiles = fileStats.trim().split('\n').filter(line => {
-      const lines = parseInt(line.split(' ')[0]);
+      const lines = Number.parseInt(line.split(' ')[0]);
       return lines > 500;
     });
 
@@ -1951,7 +1947,7 @@ export async function checkBlindSpots(
         `cd ${repoPath} && git log --format='%aN' | sort -u | wc -l`,
         { timeout: 10000 }
       );
-      result.busFactor = parseInt(stdout.trim()) || 1;
+      result.busFactor = Number.parseInt(stdout.trim()) || 1;
     } catch {
       result.busFactor = 1;
     }
@@ -2125,6 +2121,7 @@ export async function measureThroughput(
   const findings: Finding[] = [];
   const result = 'PASSED';
   let throughput = 0;
+  let tmpDir: string | undefined;
 
   try {
     // Check if k6 is available
@@ -2172,23 +2169,25 @@ export default function () {
 }
 `;
 
-    const scriptPath = `/tmp/throughput-test-${Date.now()}.js`;
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tessera-k6-'));
+    const scriptPath = path.join(tmpDir, 'throughput-test.js');
+    const resultsPath = path.join(tmpDir, 'throughput-results.json');
     await fs.writeFile(scriptPath, k6Script);
 
-    const { stdout, stderr } = await execAsync(
-      `k6 run --out json=/tmp/throughput-results.json ${scriptPath}`,
+    await execAsync(
+      `k6 run --out json=${resultsPath} ${scriptPath}`,
       { timeout: 600000 } // 10 min timeout
     );
 
     // Parse results
-    const resultsJson = await fs.readFile('/tmp/throughput-results.json', 'utf-8');
+    const resultsJson = await fs.readFile(resultsPath, 'utf-8');
     const lines = resultsJson.trim().split('\n');
     const dataPoints = lines.map(line => JSON.parse(line));
 
     // Calculate throughput
     const httpMetrics = dataPoints.filter(d => d.type === 'Point' && d.metric === 'http_reqs');
     const totalRequests = httpMetrics.length;
-    const testDuration = parseInt(duration) || 300; // seconds
+    const testDuration = Number.parseInt(duration) || 300; // seconds
     throughput = totalRequests / testDuration;
 
     // Check if throughput meets target
@@ -2207,8 +2206,7 @@ export default function () {
     }
 
     // Cleanup
-    await fs.unlink(scriptPath);
-    await fs.unlink('/tmp/throughput-results.json');
+    await fs.rm(tmpDir, { recursive: true, force: true });
 
     logger.info({ throughput, findingsCount: findings.length }, 'Throughput test completed');
   } catch (error) {
@@ -2302,8 +2300,8 @@ export async function assessStability(
   try {
     // Check for crash-prone patterns
     const crashPatterns = [
-      { pattern: 'process\\.exit', name: 'process.exit calls', severity: 'P1' },
-      { pattern: 'throw\\s+new\\s+Error', name: 'unhandled throws', severity: 'P2' },
+      { pattern: String.raw`process\.exit`, name: 'process.exit calls', severity: 'P1' },
+      { pattern: String.raw`throw\s+new\s+Error`, name: 'unhandled throws', severity: 'P2' },
       { pattern: 'unhandledRejection', name: 'unhandled rejection handlers', severity: 'P1' },
       { pattern: 'uncaughtException', name: 'uncaught exception handlers', severity: 'P1' },
     ];
@@ -2358,17 +2356,17 @@ export async function assessRobustness(
   try {
     // Check for error handling patterns
     const { stdout: tryCatchCount } = await execAsync(
-      `grep -r "try\\s*{" ${repoPath} --include="*.ts" --include="*.js" | wc -l || true`,
+      String.raw`grep -r "try\s*{" ${repoPath} --include="*.ts" --include="*.js" | wc -l || true`,
       { timeout: 30000 }
     );
 
     const { stdout: catchCount } = await execAsync(
-      `grep -r "catch\\s*(" ${repoPath} --include="*.ts" --include="*.js" | wc -l || true`,
+      String.raw`grep -r "catch\s*(" ${repoPath} --include="*.ts" --include="*.js" | wc -l || true`,
       { timeout: 30000 }
     );
 
-    const tryCount = parseInt(tryCatchCount.trim()) || 0;
-    const catCount = parseInt(catchCount.trim()) || 0;
+    const tryCount = Number.parseInt(tryCatchCount.trim()) || 0;
+    const catCount = Number.parseInt(catchCount.trim()) || 0;
 
     if (tryCount === 0 && catCount === 0) {
       robustnessScore -= 30;
@@ -2387,11 +2385,11 @@ export async function assessRobustness(
 
     // Check for null safety
     const { stdout: nullChecks } = await execAsync(
-      `grep -r "=== null\\|=== undefined\\|!= null\\|!= undefined" ${repoPath} --include="*.ts" --include="*.js" | wc -l || true`,
+      String.raw`grep -r "=== null\|=== undefined\|!= null\|!= undefined" ${repoPath} --include="*.ts" --include="*.js" | wc -l || true`,
       { timeout: 30000 }
     );
 
-    const nullCheckCount = parseInt(nullChecks.trim()) || 0;
+    const nullCheckCount = Number.parseInt(nullChecks.trim()) || 0;
 
     if (nullCheckCount < 5) {
       robustnessScore -= 15;
@@ -2579,10 +2577,10 @@ export async function measureReadability(
 
     const lines = largeFiles.trim().split('\n').filter(line => line.includes('total') === false);
     for (const line of lines.slice(0, 5)) {
-      const match = line.match(/^(\d+)\s+(.+)$/);
+      const match = /^(\d+)\s+(\S.*)$/.exec(line);
       if (match) {
         const [, lineCount, filePath] = match;
-        if (parseInt(lineCount) > 500) {
+        if (Number.parseInt(lineCount) > 500) {
           findings.push({
             id: `readability-002-${path.basename(filePath)}`,
             category: 'security-code-review',

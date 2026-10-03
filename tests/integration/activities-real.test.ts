@@ -47,6 +47,7 @@ function query(sql) {
   });
 
   describe('npm audit', () => {
+    // skipped: needs network; the real npm audit path is covered by tests/unit/scan/tools/npm-audit.test.ts; owner vannifr, remove with roadmap 012
     it.skip('should execute npm audit and parse results', () => {
       let auditResult: any = {};
       try {

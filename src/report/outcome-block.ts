@@ -22,7 +22,7 @@ const TABLE_HEADER = '| Scanner | Required | Status | Cause | Heuristic | Findin
 const TABLE_RULE = '|---------|----------|--------|-------|-----------|----------|--------------|';
 
 function cell(value: string): string {
-  return value.replaceAll(/[\r\n]+/g, ' ').replaceAll(/\|/g, '/');
+  return value.replaceAll(/[\r\n]+/g, ' ').replaceAll('|', '/');
 }
 
 function scannerRow(entry: ScannerStatusEntry): string {

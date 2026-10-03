@@ -90,6 +90,7 @@ describe('P1 Business Logic Functions', () => {
     });
   });
 
+  // skipped: legacy activity off the audit workflow path; owner vannifr, remove or rewrite with roadmap 012
   describe.skip('runSqlInjectionCheck', () => {
     it('should handle non-existent directory', async () => {
       const result = await runSqlInjectionCheck('/tmp/non-existent', 'workflow-123');
@@ -114,6 +115,7 @@ describe('P1 Business Logic Functions', () => {
     });
   });
 
+  // skipped: legacy activity off the audit workflow path; owner vannifr, remove or rewrite with roadmap 012
   describe.skip('generateReport', () => {
     it('should generate report with findings', async () => {
       const input = {
@@ -199,6 +201,7 @@ describe('P1 Business Logic Functions', () => {
     });
   });
 
+  // skipped: legacy activity off the audit workflow path; owner vannifr, remove or rewrite with roadmap 012
   describe.skip('generateScopeDocument', () => {
     it('should generate scope document', async () => {
       const techStack = {
@@ -233,6 +236,7 @@ describe('P1 Business Logic Functions', () => {
     });
   });
 
+  // skipped: legacy activity off the audit workflow path; owner vannifr, remove or rewrite with roadmap 012
   describe.skip('reviewCriticalPaths', () => {
     it('should review critical paths', async () => {
       const criticalPaths = ['auth', 'login', 'payment'];

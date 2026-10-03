@@ -55,7 +55,8 @@ function parseArgs(argv: string[]): CliArgs | string {
   const state: { expectRoot?: string; trace?: string } = {};
   let json = false;
   const pubkeys: string[] = [];
-  for (let i = 0; i < argv.length; i++) {
+  let i = 0;
+  while (i < argv.length) {
     const arg = argv[i];
     let step: Parsed | undefined;
     if (arg === '--json') {
@@ -75,6 +76,7 @@ function parseArgs(argv: string[]): CliArgs | string {
       if ('error' in step) return step.error;
       i = step.next;
     }
+    i += 1;
   }
   if (bundleDir === undefined) return 'missing bundle directory';
   return { bundleDir: path.resolve(bundleDir), expectRoot: state.expectRoot, json, trace: state.trace, pubkeys };

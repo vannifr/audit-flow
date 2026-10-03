@@ -74,7 +74,7 @@ function parseExpression(expr: string): Node | null {
   const tokens = tokenize(expr);
   let pos = 0;
   const peek = (): string | undefined => tokens[pos];
-  const isOp = (t: string | undefined, op: string): boolean => t !== undefined && t.toUpperCase() === op;
+  const isOp = (t: string | undefined, op: string): boolean => t?.toUpperCase() === op;
 
   const parseAtom = (): Node | null => {
     const t = peek();

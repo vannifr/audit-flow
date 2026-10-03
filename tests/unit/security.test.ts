@@ -3,115 +3,45 @@ import { validateRepoUrl } from '../../src/activities/index';
 
 describe('Repository URL Validation', () => {
   describe('Valid GitHub URLs', () => {
-    it('should accept standard GitHub URL', () => {
-      const url = 'https://github.com/owner/repo';
-      expect(() => validateRepoUrl(url)).not.toThrow();
-    });
-
-    it('should accept GitHub URL with .git suffix', () => {
-      const url = 'https://github.com/owner/repo.git';
-      expect(() => validateRepoUrl(url)).not.toThrow();
-    });
-
-    it('should accept GitHub URL with hyphens in owner and repo names', () => {
-      const url = 'https://github.com/my-org/my-repo-name';
-      expect(() => validateRepoUrl(url)).not.toThrow();
-    });
-
-    it('should accept GitHub URL with dots in repo name', () => {
-      const url = 'https://github.com/owner/repo.name';
+    it.each([
+      ['should accept standard GitHub URL', 'https://github.com/owner/repo'],
+      ['should accept GitHub URL with .git suffix', 'https://github.com/owner/repo.git'],
+      ['should accept GitHub URL with hyphens in owner and repo names', 'https://github.com/my-org/my-repo-name'],
+      ['should accept GitHub URL with dots in repo name', 'https://github.com/owner/repo.name'],
+    ])('%s', (_name, url) => {
       expect(() => validateRepoUrl(url)).not.toThrow();
     });
   });
 
   describe('Invalid URLs - Security Tests', () => {
-    it('should reject command injection via semicolon', () => {
-      const maliciousUrl = 'https://github.com/owner/repo;rm -rf /';
-      expect(() => validateRepoUrl(maliciousUrl)).toThrow('Invalid repository URL');
-    });
-
-    it('should reject command injection via pipe', () => {
-      const maliciousUrl = 'https://github.com/owner/repo|cat /etc/passwd';
-      expect(() => validateRepoUrl(maliciousUrl)).toThrow('Invalid repository URL');
-    });
-
-    it('should reject command injection via ampersand', () => {
-      const maliciousUrl = 'https://github.com/owner/repo&whoami';
-      expect(() => validateRepoUrl(maliciousUrl)).toThrow('Invalid repository URL');
-    });
-
-    it('should reject path traversal via double dots', () => {
-      const maliciousUrl = 'https://github.com/owner/../../../etc/passwd';
-      expect(() => validateRepoUrl(maliciousUrl)).toThrow('Invalid repository URL');
-    });
-
-    it('should reject non-GitHub URLs', () => {
-      const url = 'https://gitlab.com/owner/repo';
-      expect(() => validateRepoUrl(url)).toThrow('Invalid repository URL');
-    });
-
-    it('should reject HTTP (non-HTTPS) URLs', () => {
-      const url = 'http://github.com/owner/repo';
-      expect(() => validateRepoUrl(url)).toThrow('Invalid repository URL');
-    });
-
-    it('should reject SSH URLs', () => {
-      const url = 'git@github.com:owner/repo.git';
-      expect(() => validateRepoUrl(url)).toThrow('Invalid repository URL');
-    });
-
-    it('should reject URLs with backticks', () => {
-      const url = 'https://github.com/owner/repo`id`';
-      expect(() => validateRepoUrl(url)).toThrow('Invalid repository URL');
-    });
-
-    it('should reject URLs with environment variables', () => {
-      const url = 'https://github.com/owner/repo${PATH}';
-      expect(() => validateRepoUrl(url)).toThrow('Invalid repository URL');
-    });
-
-    it('should reject URLs with newlines', () => {
-      const url = 'https://github.com/owner/repo\n';
-      expect(() => validateRepoUrl(url)).toThrow('Invalid repository URL');
-    });
-
-    it('should reject file:// protocol', () => {
-      const url = 'file:///etc/passwd';
-      expect(() => validateRepoUrl(url)).toThrow('Invalid repository URL');
-    });
-
-    it('should reject URL-encoded semicolon', () => {
-      const url = 'https://github.com/owner/repo%3Brm';
-      expect(() => validateRepoUrl(url)).toThrow('Invalid repository URL');
-    });
-
-    it('should reject empty strings', () => {
-      expect(() => validateRepoUrl('')).toThrow('Invalid repository URL');
-    });
-
-    it('should reject URLs with spaces', () => {
-      const url = 'https://github.com/owner/repo name';
+    it.each([
+      ['should reject command injection via semicolon', 'https://github.com/owner/repo;rm -rf /'],
+      ['should reject command injection via pipe', 'https://github.com/owner/repo|cat /etc/passwd'],
+      ['should reject command injection via ampersand', 'https://github.com/owner/repo&whoami'],
+      ['should reject path traversal via double dots', 'https://github.com/owner/../../../etc/passwd'],
+      ['should reject non-GitHub URLs', 'https://gitlab.com/owner/repo'],
+      ['should reject HTTP (non-HTTPS) URLs', 'http://github.com/owner/repo'],
+      ['should reject SSH URLs', 'git@github.com:owner/repo.git'],
+      ['should reject URLs with backticks', 'https://github.com/owner/repo`id`'],
+      ['should reject URLs with environment variables', 'https://github.com/owner/repo${PATH}'],
+      ['should reject URLs with newlines', 'https://github.com/owner/repo\n'],
+      ['should reject file:// protocol', 'file:///etc/passwd'],
+      ['should reject URL-encoded semicolon', 'https://github.com/owner/repo%3Brm'],
+      ['should reject empty strings', ''],
+      ['should reject URLs with spaces', 'https://github.com/owner/repo name'],
+    ])('%s', (_name, url) => {
       expect(() => validateRepoUrl(url)).toThrow('Invalid repository URL');
     });
   });
 });
 
 describe('Workflow ID Validation', () => {
-  it('should accept alphanumeric workflow IDs', () => {
-    const workflowId = 'audit-test-repo-1234567890';
-    const pattern = /^[a-zA-Z0-9_-]+$/;
-    expect(pattern.test(workflowId)).toBe(true);
-  });
-
-  it('should reject workflow IDs with path traversal', () => {
-    const workflowId = '../../../etc/passwd';
-    const pattern = /^[a-zA-Z0-9_-]+$/;
-    expect(pattern.test(workflowId)).toBe(false);
-  });
-
-  it('should reject workflow IDs with slashes', () => {
-    const workflowId = 'audit/test/repo';
-    const pattern = /^[a-zA-Z0-9_-]+$/;
-    expect(pattern.test(workflowId)).toBe(false);
+  const pattern = /^[a-zA-Z0-9_-]+$/;
+  it.each([
+    ['should accept alphanumeric workflow IDs', 'audit-test-repo-1234567890', true],
+    ['should reject workflow IDs with path traversal', '../../../etc/passwd', false],
+    ['should reject workflow IDs with slashes', 'audit/test/repo', false],
+  ])('%s', (_name, workflowId, expected) => {
+    expect(pattern.test(workflowId)).toBe(expected);
   });
 });
