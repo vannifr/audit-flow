@@ -25,6 +25,7 @@ export interface AuditResult {
   scanners: ScannerStatusEntry[];
   source: { repoUrl: string; revision: string | null };
   reviewAdvice: ReviewAdvice[];
+  evidence?: { bundlePath: string; rootHash: string; recordCount: number };
 }
 
 export type AuditStatus =

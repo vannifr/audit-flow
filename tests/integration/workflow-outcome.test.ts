@@ -41,6 +41,14 @@ const { applicationAudit } = await import('../../src/workflows/index');
 const RUN: AuditRun = { runId: 'run-outcome', workDir: '/tmp/tessera-run-outcome', repoDir: '/tmp/tessera-run-outcome/repo' };
 const SOURCE: FetchedSource = { repoDir: RUN.repoDir, revision: 'b'.repeat(40) };
 const INPUT: AuditInput = { repoUrl: 'https://github.com/acme/app', skipApproval: true };
+const SEALED = {
+  bundlePath: '/evidence/run-outcome',
+  rootHash: 'd'.repeat(64),
+  recordCount: 6,
+  artifactCount: 4,
+  abandonedCount: 0,
+  selfVerified: true,
+};
 const SCANNERS = ['gitleaks', 'semgrep', 'npm-audit', 'license-check'] as const;
 const ACTIVITY: Record<(typeof SCANNERS)[number], string> = {
   gitleaks: 'runGitleaks',
@@ -108,6 +116,7 @@ function baseline(): Record<string, Fn> {
     crossValidate: vi.fn(async () => ({ falsePositives: [], severityCorrections: [], missingFindings: [], reviewNotes: '' })),
     generateReport: vi.fn(async () => ({ reportPath: '/out/audit-report.md', evidencePath: '/out/evidence' })),
     cleanupRun: vi.fn(async () => undefined),
+    sealEvidence: vi.fn(async () => SEALED),
   };
 }
 
@@ -444,7 +453,7 @@ describe('applicationAudit result shape', () => {
   it('extends AuditResult additively and keeps raw output out of it', async () => {
     const result: AuditResult = await applicationAudit(INPUT);
     expect(Object.keys(result).sort()).toEqual(
-      ['complianceMap', 'duration', 'endTime', 'evidencePath', 'findings', 'notPerformed', 'outcome', 'reportPath', 'reviewAdvice', 'scanners', 'source', 'startTime', 'status'].sort(),
+      ['complianceMap', 'duration', 'endTime', 'evidence', 'evidencePath', 'findings', 'notPerformed', 'outcome', 'reportPath', 'reviewAdvice', 'scanners', 'source', 'startTime', 'status'].sort(),
     );
   });
 });
@@ -507,5 +516,156 @@ describe('applicationAudit model review is advice only (principle IX)', () => {
   it('records no advice when the review suggests nothing', async () => {
     const result = await applicationAudit(INPUT);
     expect(result.reviewAdvice).toEqual([]);
+  });
+});
+
+describe('applicationAudit evidence seal (FR-009, FR-017)', () => {
+  it('seals once after the scans and the code review, before compliance and the report, with every used record id', async () => {
+    harness.activities.fetchSource = vi.fn(async () => ({ ...SOURCE, evidenceRecordIds: ['source.clone.a1', 'source.revision.a1'] }));
+    const leak = finding('LEAK-1', 'gitleaks');
+    harness.activities.runGitleaks = vi.fn(async () => step('gitleaks', 'completed', { cause: 'issues-found', findings: [leak] }));
+
+    const result = await applicationAudit(INPUT);
+
+    expect(act('sealEvidence')).toHaveBeenCalledTimes(1);
+    const sealInput = act('sealEvidence').mock.calls[0][0] as { run: AuditRun; source: FetchedSource; repoUrl: string; usedRecordIds: string[]; workflowId: string };
+    expect(sealInput.run).toEqual(RUN);
+    expect(sealInput.source).toMatchObject(SOURCE);
+    expect(sealInput.repoUrl).toBe(INPUT.repoUrl);
+    expect(sealInput.workflowId).toBe('wf-outcome');
+    expect([...sealInput.usedRecordIds].sort()).toEqual(
+      ['source.clone.a1', 'source.revision.a1', ...SCANNERS.map((s) => recordId(s))].sort(),
+    );
+    const order = harness.calls;
+    for (const before of ['runGitleaks', 'runSemgrep', 'runNpmAudit', 'runLicenseCheck', 'reviewCriticalPaths']) {
+      expect(order.indexOf(before)).toBeLessThan(order.indexOf('sealEvidence'));
+    }
+    expect(order.indexOf('sealEvidence')).toBeLessThan(order.indexOf('mapToCompliance'));
+    expect(order.indexOf('sealEvidence')).toBeLessThan(order.indexOf('generateReport'));
+    expect(result.evidence).toEqual({ bundlePath: SEALED.bundlePath, rootHash: SEALED.rootHash, recordCount: SEALED.recordCount });
+    expect(reportInput().evidence).toEqual({ bundlePath: SEALED.bundlePath, rootHash: SEALED.rootHash });
+  });
+
+  it('does not pass untraced finding record ids as used', async () => {
+    const forged = { ...finding('F-1', 'semgrep', false), evidenceRef: { recordId: 'scan.forged.a1', recordSha256: 'c'.repeat(64) } };
+    harness.activities.runSemgrep = vi.fn(async () => step('semgrep', 'completed', { cause: 'issues-found', findings: [forged] }));
+
+    await applicationAudit(INPUT);
+
+    const used = (act('sealEvidence').mock.calls[0][0] as { usedRecordIds: string[] }).usedRecordIds;
+    expect(used).not.toContain('scan.forged.a1');
+    expect(new Set(used).size).toBe(used.length);
+  });
+
+  it('fails the audit without a report when the seal fails on the success path', async () => {
+    harness.activities.sealEvidence = vi.fn(async () => {
+      throw activityFailure(ApplicationFailure.create({ type: 'EvidenceSealError', message: 'seal failed', nonRetryable: true }));
+    });
+
+    const error = await rejection(applicationAudit(INPUT));
+
+    expect(error).toBeInstanceOf(ActivityFailure);
+    expect(act('generateReport')).not.toHaveBeenCalled();
+    expect(act('sealEvidence')).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails the audit when the seal reports that it did not verify itself', async () => {
+    harness.activities.sealEvidence = vi.fn(async () => ({ ...SEALED, selfVerified: false }));
+
+    const error = await rejection(applicationAudit(INPUT));
+
+    expect(error).toBeInstanceOf(ApplicationFailure);
+    expect((error as ApplicationFailure).type).toBe('EvidenceSealError');
+    expect((error as ApplicationFailure).nonRetryable).toBe(true);
+    expect(act('generateReport')).not.toHaveBeenCalled();
+  });
+
+  it('seals after a source failure and puts the bundle path and root hash in the failure details', async () => {
+    harness.activities.fetchSource = vi.fn(async () => {
+      throw activityFailure(
+        ApplicationFailure.create({
+          type: 'SourceUnavailableError',
+          message: 'source unavailable: repository not found',
+          nonRetryable: true,
+          details: [{ evidenceRecordIds: ['source.clone.a1'] }],
+        }),
+      );
+    });
+
+    const failure = (await rejection(applicationAudit(INPUT))) as ApplicationFailure;
+
+    expect(failure.type).toBe('SourceUnavailableError');
+    expect(failure.details?.[0]).toMatchObject({
+      outcome: 'incomplete',
+      evidence: { bundlePath: SEALED.bundlePath, rootHash: SEALED.rootHash },
+    });
+    expect(act('sealEvidence')).toHaveBeenCalledTimes(1);
+    expect(act('sealEvidence').mock.calls[0][0]).toMatchObject({ run: RUN, source: null, usedRecordIds: ['source.clone.a1'] });
+    expect(harness.calls.indexOf('sealEvidence')).toBeLessThan(harness.calls.indexOf('cleanupRun'));
+  });
+
+  it('keeps the original source failure when the seal also fails', async () => {
+    harness.activities.fetchSource = vi.fn(async () => {
+      throw activityFailure(ApplicationFailure.create({ type: 'SourceNetworkError', message: 'network', nonRetryable: false }));
+    });
+    harness.activities.sealEvidence = vi.fn(async () => {
+      throw activityFailure(new Error('disk full'));
+    });
+
+    const failure = (await rejection(applicationAudit(INPUT))) as ApplicationFailure;
+
+    expect(failure.type).toBe('SourceNetworkError');
+    expect(failure.details?.[0]).not.toHaveProperty('evidence');
+    expect(act('sealEvidence')).toHaveBeenCalledTimes(1);
+  });
+
+  it('seals before ending on an undetected tech stack and names the bundle in the details', async () => {
+    harness.activities.fetchSource = vi.fn(async () => ({ ...SOURCE, evidenceRecordIds: ['source.clone.a1'] }));
+    harness.activities.detectTechStack = vi.fn(async () => ({ language: 'unknown', frameworks: [], hasPayments: false, hasPII: false, packageManager: 'other' }));
+
+    const failure = (await rejection(applicationAudit(INPUT))) as ApplicationFailure;
+
+    expect(failure.type).toBe('TechStackNotDetectedError');
+    expect(failure.details?.[0]).toEqual({ evidence: { bundlePath: SEALED.bundlePath, rootHash: SEALED.rootHash } });
+    expect(act('sealEvidence')).toHaveBeenCalledTimes(1);
+    expect(act('sealEvidence').mock.calls[0][0]).toMatchObject({ usedRecordIds: ['source.clone.a1'] });
+  });
+
+  it('names the sealed bundle in the details of a P0 rejection without sealing twice', async () => {
+    const p0 = { ...finding('LEAK-P0', 'gitleaks'), severity: 'P0' as const };
+    harness.activities.runGitleaks = vi.fn(async () => step('gitleaks', 'completed', { cause: 'issues-found', findings: [p0] }));
+
+    const failure = (await rejection(applicationAudit({ ...INPUT, skipApproval: false }))) as ApplicationFailure;
+
+    expect(failure.type).toBe('AuditRejectedError');
+    expect(failure.details?.[0]).toEqual({ evidence: { bundlePath: SEALED.bundlePath, rootHash: SEALED.rootHash } });
+    expect(act('sealEvidence')).toHaveBeenCalledTimes(1);
+  });
+
+  it('seals best-effort when another activity fails before the seal, without masking the error', async () => {
+    harness.activities.detectTechStack = vi.fn(async () => {
+      throw activityFailure(new Error('detect failed'));
+    });
+
+    const error = await rejection(applicationAudit(INPUT));
+
+    expect(error).toBeInstanceOf(ActivityFailure);
+    expect(act('sealEvidence')).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not seal when the run could not be initialised or the workflow is cancelled', async () => {
+    harness.activities.initAuditRun = vi.fn(async () => {
+      throw activityFailure(new Error('init failed'));
+    });
+    await rejection(applicationAudit(INPUT));
+    expect(act('sealEvidence')).not.toHaveBeenCalled();
+
+    harness.activities = baseline();
+    const cancelled = new CancelledFailure('cancelled');
+    harness.activities.fetchSource = vi.fn(async () => {
+      throw cancelled;
+    });
+    expect(await rejection(applicationAudit(INPUT))).toBe(cancelled);
+    expect(act('sealEvidence')).not.toHaveBeenCalled();
   });
 });

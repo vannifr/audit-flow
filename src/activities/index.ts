@@ -26,7 +26,8 @@ import { renderOutcomeBlock } from '../report/outcome-block';
 import { walkSourceFiles, readSourceFile } from '../scan/safe-walk';
 import { validateRepoUrl } from '../scan/repo-url';
 import { createScanActivities } from '../scan/activities';
-import type { ScanActivities, ScanActivity } from '../scan/activities';
+import type { ScanActivities, ScanActivity, SealEvidenceActivityInput } from '../scan/activities';
+import type { SealEvidenceResult } from '../evidence/manifest';
 import type { AuditOutcome, NotPerformed, ScannerStatusEntry } from '../scan/status';
 import type {
   Finding,
@@ -436,6 +437,7 @@ export async function generateReport(input: {
   notPerformed?: NotPerformed[];
   scanners?: ScannerStatusEntry[];
   revision?: string | null;
+  evidence?: { bundlePath: string; rootHash: string };
 }): Promise<{ reportPath: string; evidencePath: string }> {
   const baseDir = input.outputDir || path.join('/tmp', `audit-${input.workflowId}`);
   const reportPath = path.join(baseDir, 'audit-report.md');
@@ -488,6 +490,7 @@ interface ReportInput {
   notPerformed?: NotPerformed[];
   scanners?: ScannerStatusEntry[];
   revision?: string | null;
+  evidence?: { bundlePath: string; rootHash: string };
 }
 
 function generateMarkdownReport(input: ReportInput): string {
@@ -511,6 +514,7 @@ function generateMarkdownReport(input: ReportInput): string {
     notPerformed: input.notPerformed,
     scanners: input.scanners,
     revision: input.revision,
+    evidence: input.evidence,
     findingCount: input.findings.length,
   });
 
@@ -2608,10 +2612,6 @@ function frameworkVersion(): string {
   }
 }
 
-function evidenceRunId(workflowId: string, runId: string): string {
-  return `${workflowId.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 64)}-${runId}`;
-}
-
 function currentExecution(): { workflowId: string; runId: string; attempt: number } {
   const info = Context.current().info;
   if (info.workflowExecution === undefined) {
@@ -2633,6 +2633,7 @@ function toApplicationFailure(error: unknown): unknown {
       message: error.message,
       type: error.kind === 'network' ? 'SourceNetworkError' : 'SourceUnavailableError',
       nonRetryable: !error.retryable,
+      details: [{ evidenceRecordIds: [...error.evidenceRecordIds] }],
     });
   }
   return error;
@@ -2657,16 +2658,14 @@ export async function initAuditRun(): Promise<AuditRun> {
 export async function fetchSource(run: AuditRun, repoUrl: string): Promise<FetchedSource> {
   const workflowExecution = currentExecution();
   const { attempt } = workflowExecution;
-  const bundleRunId = evidenceRunId(workflowExecution.workflowId, workflowExecution.runId);
   try {
     const source = await lifecycle.fetchSource(run, repoUrl, {
       runner: defaultProcessRunner,
       tmpRoot: os.tmpdir(),
-      store: createEvidenceStore(evidenceRoot(), bundleRunId),
+      store: createEvidenceStore(evidenceRoot(), run.runId),
       clock: () => new Date(),
       frameworkVersion: frameworkVersion(),
       attempt,
-      evidenceRunId: bundleRunId,
     });
     logger.info({ runId: run.runId, revision: source.revision }, 'Source fetched');
     return source;
@@ -2681,17 +2680,26 @@ export async function cleanupRun(run: AuditRun): Promise<void> {
   logger.info({ runId: run.runId }, 'Audit run work dir removed');
 }
 
-function scanActivity(name: keyof ScanActivities): ScanActivity {
-  return (run, source, repoUrl) =>
-    createScanActivities({
-      runner: defaultProcessRunner,
-      clock: () => new Date(),
-      evidenceRoot: evidenceRoot(),
-      tmpRoot: os.tmpdir(),
-      frameworkVersion: frameworkVersion(),
-      workerEnv: process.env,
-      configDir: path.resolve(__dirname, '..', '..', 'config', 'scanners'),
-    })[name](run, source, repoUrl);
+function workerScanActivities(): ScanActivities {
+  return createScanActivities({
+    runner: defaultProcessRunner,
+    clock: () => new Date(),
+    evidenceRoot: evidenceRoot(),
+    tmpRoot: os.tmpdir(),
+    frameworkVersion: frameworkVersion(),
+    workerEnv: process.env,
+    configDir: path.resolve(__dirname, '..', '..', 'config', 'scanners'),
+  });
+}
+
+function scanActivity(name: Exclude<keyof ScanActivities, 'sealEvidence'>): ScanActivity {
+  return (run, source, repoUrl) => workerScanActivities()[name](run, source, repoUrl);
+}
+
+export async function sealEvidence(input: SealEvidenceActivityInput): Promise<SealEvidenceResult> {
+  const result = await workerScanActivities().sealEvidence(input);
+  logger.info({ runId: input?.run?.runId, rootHash: result.rootHash, recordCount: result.recordCount }, 'Evidence bundle sealed');
+  return result;
 }
 
 export const runGitleaks: ScanActivity = scanActivity('runGitleaks');

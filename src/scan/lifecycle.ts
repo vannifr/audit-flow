@@ -29,12 +29,12 @@ export interface SourceFetchError extends Error {
 export interface FetchedSource {
   repoDir: string;
   revision: string;
+  evidenceRecordIds?: string[];
 }
 
 export interface FetchSourceDeps extends RunToolDeps {
   tmpRoot?: string;
   attempt?: number;
-  evidenceRunId?: string;
 }
 
 export type LifecycleInputCode = 'invalid-run' | 'invalid-repo-url';
@@ -52,12 +52,14 @@ export class LifecycleInputError extends Error {
 export class SourceFetchFailure extends Error implements SourceFetchError {
   readonly kind: SourceErrorKind;
   readonly retryable: boolean;
+  readonly evidenceRecordIds: string[];
 
-  constructor(kind: SourceErrorKind, retryable: boolean, message: string) {
+  constructor(kind: SourceErrorKind, retryable: boolean, message: string, evidenceRecordIds: string[] = []) {
     super(message);
     this.name = 'SourceFetchError';
     this.kind = kind;
     this.retryable = retryable;
+    this.evidenceRecordIds = [...evidenceRecordIds];
   }
 }
 
@@ -178,9 +180,8 @@ export async function fetchSource(input: AuditRun, repoUrl: string, deps: FetchS
     throw new LifecycleInputError('invalid-repo-url', 'invalid repository URL: only https://github.com/<owner>/<repo> is allowed');
   }
   const attempt = deps.attempt ?? 1;
-  const evidenceRunId = deps.evidenceRunId ?? run.runId;
   const pathTokens = { [run.workDir]: '<WORK>' };
-  const common = { attempt, runId: evidenceRunId, outputFrom: 'stdout' as const, pathTokens, inputs: { repoUrl } };
+  const common = { attempt, runId: run.runId, outputFrom: 'stdout' as const, pathTokens, inputs: { repoUrl } };
 
   await rm(run.repoDir, { recursive: true, force: true });
 
@@ -212,8 +213,8 @@ export async function fetchSource(input: AuditRun, repoUrl: string, deps: FetchS
     const network = clone.record.result.timedOut || clone.classification.cause === 'network';
     const detail = clone.classification.causeDetail ?? clone.classification.exitClass;
     throw network
-      ? new SourceFetchFailure('network', true, `source fetch failed (network): ${detail}`)
-      : new SourceFetchFailure('source-unavailable', false, `source unavailable: ${detail}`);
+      ? new SourceFetchFailure('network', true, `source fetch failed (network): ${detail}`, [clone.record.id])
+      : new SourceFetchFailure('source-unavailable', false, `source unavailable: ${detail}`, [clone.record.id]);
   }
 
   const revParse = await runTool(
@@ -230,9 +231,9 @@ export async function fetchSource(input: AuditRun, repoUrl: string, deps: FetchS
   );
   const revision = revParse.parsed.ok ? revParse.parsed.value : undefined;
   if (revParse.classification.status !== 'completed' || typeof revision !== 'string' || !REVISION.test(revision)) {
-    throw new SourceFetchFailure('source-unavailable', false, 'could not determine a valid source revision');
+    throw new SourceFetchFailure('source-unavailable', false, 'could not determine a valid source revision', [clone.record.id, revParse.record.id]);
   }
-  return { repoDir: run.repoDir, revision };
+  return { repoDir: run.repoDir, revision, evidenceRecordIds: [clone.record.id, revParse.record.id] };
 }
 
 export async function cleanupRun(run: AuditRun, tmpRoot: string): Promise<void> {

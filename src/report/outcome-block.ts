@@ -5,6 +5,7 @@ export interface OutcomeBlockInput {
   notPerformed?: NotPerformed[];
   scanners?: ScannerStatusEntry[];
   revision?: string | null;
+  evidence?: { bundlePath: string; rootHash: string };
   findingCount: number;
 }
 
@@ -26,6 +27,23 @@ function scannerRow(entry: ScannerStatusEntry): string {
     cell(entry.toolVersion ?? 'n/a'),
   ];
   return `| ${columns.join(' | ')} |`;
+}
+
+function shellArg(value: string): string {
+  return /^[A-Za-z0-9._/:=+-]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function evidenceLines(evidence: { bundlePath: string; rootHash: string }): string[] {
+  const bundle = cell(evidence.bundlePath);
+  const root = cell(evidence.rootHash);
+  return [
+    `Evidence bundle: ${bundle}`,
+    `Evidence root hash: ${root}`,
+    `Verify: npm run evidence:verify -- ${shellArg(bundle)} --expect-root ${shellArg(root)}`,
+    'Without Tessera, `sha256sum -c SHA256SUMS` in the bundle folder detects only changed or missing files; added files, the hash chain and the root hash need the verify command.',
+    'Integrity: hashes only; the manifest is not signed',
+    '',
+  ];
 }
 
 function outcomeLine(outcome: AuditOutcome | undefined): string {
@@ -60,6 +78,8 @@ export function renderOutcomeBlock(input: OutcomeBlockInput): string {
   if (typeof input.revision === 'string' && input.revision.length > 0) {
     lines.push(`Source revision: ${cell(input.revision)}`, '');
   }
+
+  if (input.evidence !== undefined) lines.push(...evidenceLines(input.evidence));
 
   return `${lines.join('\n')}\n`;
 }

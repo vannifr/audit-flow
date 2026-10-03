@@ -16,6 +16,7 @@ import { initAuditRun, cleanupRun } from '../src/scan/lifecycle';
 import type { AuditRun } from '../src/scan/lifecycle';
 import { defaultProcessRunner } from '../src/scan/process-runner';
 import { createEvidenceStore } from '../src/evidence/store';
+import { sealEvidenceBundle } from '../src/evidence/manifest';
 import { computeOutcome } from '../src/scan/status';
 import type { ScanContext, ScanStep, ScanStepResult } from '../src/scan/scan-types';
 import { runGitleaksScan } from '../src/scan/tools/gitleaks';
@@ -201,6 +202,18 @@ async function runE2ETest() {
     console.log(`\n   Outcome: ${decision.outcome}`);
     for (const item of decision.notPerformed) console.log(`   Not performed: ${item.summary}`);
 
+    const sealed = await sealEvidenceBundle({
+      bundleDir: path.join(EVIDENCE_ROOT, RUN_ID),
+      runId: RUN_ID,
+      workflowId: WORKFLOW_ID,
+      temporalRunId: RUN_ID,
+      source: { repoUrl: 'https://github.com/test/e2e-test', revision: '0'.repeat(40) },
+      frameworkVersion: 'e2e',
+      usedRecordIds: results.flatMap((r) => r.status.evidenceRecordIds),
+      clock: () => new Date(),
+    });
+    console.log(`   Evidence sealed: ${sealed.recordCount} records, root ${sealed.rootHash}, self-verified ${sealed.selfVerified}`);
+
     // Aggregate findings
     const allFindings = [...npmFindings, ...leakFindings, ...semgrepFindings, ...licenseFindings];
     console.log(`\n   Total findings: ${allFindings.length}`);
@@ -240,6 +253,7 @@ async function runE2ETest() {
       outcome: decision.outcome,
       notPerformed: decision.notPerformed,
       scanners: results.map((r) => r.status),
+      evidence: { bundlePath: sealed.bundlePath, rootHash: sealed.rootHash },
     });
 
     console.log(`   Report path: ${report.reportPath}`);
@@ -266,7 +280,8 @@ async function runE2ETest() {
     console.log('\n11. Cleaning up...');
     await cleanupRun(RUN, os.tmpdir());
     console.log('   Work dir cleaned up');
-    console.log(`   Evidence kept under ${path.join(EVIDENCE_ROOT, RUN_ID)}`);
+    console.log(`   Evidence kept under ${sealed.bundlePath}`);
+    console.log(`   Verify: npm run evidence:verify -- ${sealed.bundlePath} --expect-root ${sealed.rootHash}`);
 
     console.log('\n=== E2E TEST COMPLETE ===\n');
     return true;

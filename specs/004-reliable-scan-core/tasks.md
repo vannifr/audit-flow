@@ -112,11 +112,11 @@ each marked `superseded by FR-xxx` in the commit body. No adapters with the old 
 **Goal**: each finding and each executed step is traceable to a record; the run has a manifest and a source revision.
 **Independent test**: pick a finding and follow it to its record, raw-output hash and revision.
 
-- [ ] T025 [P] [US2] Write failing unit tests for the manifest, hash chain, sealing and trace [TS-016, TS-017, TS-020] in `tests/unit/evidence/manifest.test.ts`
+- [x] T025 [P] [US2] Write failing unit tests for the manifest, hash chain, sealing and trace [TS-016, TS-017, TS-020] in `tests/unit/evidence/manifest.test.ts`
   - Tier B. Consumes: `contracts/evidence-manifest.ts`. Produces: red tests for FR-009, FR-017.
-- [ ] T026 [US2] Implement `src/evidence/manifest.ts` and the `sealEvidence` activity (entries sorted, chain, retention date, self-verify, root hash in workflow result) to pass [TS-016, TS-017, TS-020]
+- [x] T026 [US2] Implement `src/evidence/manifest.ts` and the `sealEvidence` activity (entries sorted, chain, retention date, self-verify, root hash in workflow result) to pass [TS-016, TS-017, TS-020]
   - Tier C (integrity chain). Files: `src/evidence/manifest.ts`, `src/activities/index.ts`. Produces: sealed bundle and `rootHash`.
-- [ ] T027 [US2] Add `evidenceRef` to every finding in all migrated scan activities [TS-012, TS-013] in `src/scan/tools/*.ts` and `src/types/index.ts`
+- [x] T027 [US2] Add `evidenceRef` to every finding in all migrated scan activities [TS-012, TS-013] in `src/scan/tools/*.ts` and `src/types/index.ts`
   - Tier B. Consumes: T018 to T021, T011. Produces: finding to record link (FR-007).
 - [ ] T028 [US2] Write step definitions for `evidence-records.feature` and run them green [TS-012, TS-013, TS-014, TS-015, TS-016, TS-017, TS-018, TS-019, TS-020] in `.../evidence-records.steps.ts`
   - Tier B.
@@ -139,9 +139,9 @@ each marked `superseded by FR-xxx` in the commit body. No adapters with the old 
 
 ## Phase 6: User Story 4 - Verifiable evidence integrity (Priority: P2)
 
-- [ ] T032 [P] [US4] Write failing tamper-matrix tests (modified, deleted, added, no false alarm) [TS-024, TS-025, TS-026] in `tests/unit/evidence/verify.test.ts`
+- [x] T032 [P] [US4] Write failing tamper-matrix tests (modified, deleted, added, no false alarm) [TS-024, TS-025, TS-026] in `tests/unit/evidence/verify.test.ts`
   - Tier B. Consumes: `contracts/verify-contract.md`.
-- [ ] T033 [US4] Implement `src/evidence/verify.ts` and `src/cli/verify-evidence.ts` plus script `evidence:verify` to pass [TS-024, TS-025, TS-026]
+- [x] T033 [US4] Implement `src/evidence/verify.ts` and `src/cli/verify-evidence.ts` plus script `evidence:verify` to pass [TS-024, TS-025, TS-026]
   - Tier C (integrity logic). Produces: `VerifyReport`, exit codes.
 - [ ] T034 [US4] Write step definitions for `evidence-verification.feature` and run them green [TS-024, TS-025, TS-026]
   - Tier B.

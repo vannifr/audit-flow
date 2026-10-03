@@ -7,6 +7,10 @@ import { createScanActivities } from '../../../src/scan/activities';
 import type { ScanActivityDeps } from '../../../src/scan/activities';
 import type { ProcessOutcome, ProcessRequest, ProcessRunner } from '../../../src/scan/tool-types';
 import type { AuditRun, FetchedSource } from '../../../src/scan/lifecycle';
+import { chmod, symlink } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { verifyEvidenceBundle } from '../../../src/evidence/verify';
+import type { EvidenceManifest } from '../../../src/evidence/types';
 
 const attempt = vi.hoisted(() => ({ value: 1 }));
 
@@ -327,5 +331,140 @@ describe('worker-registered scan activities', () => {
     } finally {
       await rm(workDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('sealEvidence activity (FR-009, FR-015, FR-017)', () => {
+  const bundle = (): string => path.join(evidenceRoot, RUN_ID);
+  const manifestOf = async (): Promise<EvidenceManifest> =>
+    JSON.parse(await readFile(path.join(bundle(), 'manifest.json'), 'utf8')) as EvidenceManifest;
+
+  afterEach(async () => {
+    await chmod(bundle(), 0o700).catch(() => undefined);
+  });
+
+  async function scanned(): Promise<ReturnType<typeof createScanActivities>> {
+    const acts = createScanActivities(deps(runnerFor(await fixture('gitleaks-leak.json'))));
+    await acts.runGitleaks(run, source, REPO_URL);
+    return acts;
+  }
+
+  it('seals the run bundle under evidenceRoot/<runId>, verifies itself and marks used records', async () => {
+    const acts = await scanned();
+    const result = await acts.sealEvidence({ run, source, repoUrl: REPO_URL, usedRecordIds: ['scan.gitleaks.a1'], workflowId: 'wf-seal' });
+    expect(result).toMatchObject({ bundlePath: bundle(), recordCount: 1, artifactCount: 2, abandonedCount: 0, selfVerified: true });
+    expect(Object.keys(result).sort()).toEqual(['abandonedCount', 'artifactCount', 'bundlePath', 'recordCount', 'rootHash', 'selfVerified']);
+    const m = await manifestOf();
+    expect(m.runId).toBe(RUN_ID);
+    expect(m.temporalRunId).toBe(RUN_ID);
+    expect(m.workflowId).toBe('wf-seal');
+    expect(m.source).toEqual({ repoUrl: REPO_URL, revision: REVISION });
+    expect(m.framework.version).toBe('0.0.0-test');
+    expect(m.sealedAt).toBe(T0.toISOString());
+    expect(m.rootHash).toBe(result.rootHash);
+    expect(m.entries.every((e) => e.used)).toBe(true);
+    const report = await verifyEvidenceBundle(bundle(), { expectRootHash: result.rootHash });
+    expect(report.ok).toBe(true);
+    expect((await stat(bundle())).mode & 0o777).toBe(0o500);
+  });
+
+  it('marks records the workflow did not use as used=false', async () => {
+    const acts = await scanned();
+    await acts.sealEvidence({ run, source, repoUrl: REPO_URL, usedRecordIds: [], workflowId: 'wf-seal' });
+    const m = await manifestOf();
+    expect(m.entries.length).toBeGreaterThan(0);
+    expect(m.entries.every((e) => e.used === false)).toBe(true);
+  });
+
+  it('is idempotent on a retry: the same result and a byte-identical manifest', async () => {
+    const acts = await scanned();
+    const first = await acts.sealEvidence({ run, source, repoUrl: REPO_URL, usedRecordIds: ['scan.gitleaks.a1'], workflowId: 'wf-seal' });
+    const before = await readFile(path.join(bundle(), 'manifest.json'));
+    const later = createScanActivities(deps(runnerFor(outcome()), { clock: () => new Date('2027-06-01T00:00:00.000Z') }));
+    const second = await later.sealEvidence({ run, source, repoUrl: REPO_URL, usedRecordIds: ['scan.gitleaks.a1'], workflowId: 'wf-seal' });
+    expect(second).toEqual(first);
+    expect((await readFile(path.join(bundle(), 'manifest.json'))).equals(before)).toBe(true);
+  });
+
+  it('finishes an interrupted seal: a leftover partial manifest is removed and the directory is locked', async () => {
+    const acts = await scanned();
+    const first = await acts.sealEvidence({ run, source, repoUrl: REPO_URL, usedRecordIds: [], workflowId: 'wf-seal' });
+    await chmod(bundle(), 0o700);
+    await writeFile(path.join(bundle(), '.manifest.json.partial'), 'partial');
+    const second = await acts.sealEvidence({ run, source, repoUrl: REPO_URL, usedRecordIds: [], workflowId: 'wf-seal' });
+    expect(second).toEqual(first);
+    expect(await readdir(bundle())).not.toContain('.manifest.json.partial');
+    expect((await stat(bundle())).mode & 0o777).toBe(0o500);
+  });
+
+  it('refuses a retry when the existing sealed bundle no longer verifies (non-retryable)', async () => {
+    const acts = await scanned();
+    await acts.sealEvidence({ run, source, repoUrl: REPO_URL, usedRecordIds: [], workflowId: 'wf-seal' });
+    await chmod(path.join(bundle(), 'records'), 0o700);
+    const file = path.join(bundle(), 'records', 'scan.gitleaks.a1.json');
+    await chmod(file, 0o600);
+    await writeFile(file, '{"tampered":true}');
+    const failure = await expectFailure(
+      acts.sealEvidence({ run, source, repoUrl: REPO_URL, usedRecordIds: [], workflowId: 'wf-seal' }),
+      'EvidenceSealError',
+      true,
+    );
+    expect(failure.message).toMatch(/does not verify/);
+  });
+
+  it('seals a run without any evidence yet as an empty bundle whose root is the genesis hash', async () => {
+    const acts = createScanActivities(deps(runnerFor(outcome())));
+    const result = await acts.sealEvidence({ run, source: null, repoUrl: REPO_URL, usedRecordIds: [], workflowId: 'wf-seal' });
+    expect(result.recordCount).toBe(0);
+    expect(result.rootHash).toBe(createHash('sha256').update(`tessera:${RUN_ID}`).digest('hex'));
+    expect((await manifestOf()).source).toEqual({ repoUrl: REPO_URL, revision: null });
+  });
+
+  it('refuses to seal when a used record is not in the bundle (non-retryable)', async () => {
+    const acts = await scanned();
+    const failure = await expectFailure(
+      acts.sealEvidence({ run, source, repoUrl: REPO_URL, usedRecordIds: ['scan.semgrep.a1'], workflowId: 'wf-seal' }),
+      'EvidenceSealError',
+      true,
+    );
+    expect(failure.message).toMatch(/scan\.semgrep\.a1/);
+    await expect(stat(path.join(bundle(), 'manifest.json'))).rejects.toThrow();
+  });
+
+  it('refuses a bundle with a symlink (non-retryable) and writes no manifest', async () => {
+    const acts = await scanned();
+    await symlink('/etc/hostname', path.join(bundle(), 'artifacts', 'evil.txt'));
+    await expectFailure(acts.sealEvidence({ run, source, repoUrl: REPO_URL, usedRecordIds: [], workflowId: 'wf-seal' }), 'EvidenceSealError', true);
+    await expect(stat(path.join(bundle(), 'manifest.json'))).rejects.toThrow();
+  });
+
+  it.each([
+    ['an invalid used record id', { usedRecordIds: ['../x'] }],
+    ['a forged source revision', { source: { repoDir: '/x', revision: 'nope' } }],
+    ['a missing workflow id', { workflowId: undefined }],
+    ['a workflow id with path characters', { workflowId: 'a/b' }],
+  ])('rejects %s as InvalidRunError', async (_name, override) => {
+    const acts = createScanActivities(deps(runnerFor(outcome())));
+    const input = { run, source, repoUrl: REPO_URL, usedRecordIds: [] as string[], workflowId: 'wf-seal', ...override } as Parameters<typeof acts.sealEvidence>[0];
+    await expectFailure(acts.sealEvidence(input), 'InvalidRunError', true);
+  });
+
+  it('rejects a run whose paths do not match the tmp root', async () => {
+    const acts = createScanActivities(deps(runnerFor(outcome())));
+    const forged = { ...run, workDir: '/etc' };
+    await expectFailure(acts.sealEvidence({ run: forged, source, repoUrl: REPO_URL, usedRecordIds: [], workflowId: 'wf-seal' }), 'InvalidRunError', true);
+  });
+
+  it('refuses an evidence root that overlaps the work dir', async () => {
+    const acts = createScanActivities(deps(runnerFor(outcome()), { evidenceRoot: path.join(run.workDir, 'evidence') }));
+    await expectFailure(acts.sealEvidence({ run, source, repoUrl: REPO_URL, usedRecordIds: [], workflowId: 'wf-seal' }), 'EvidenceStoreError', true);
+  });
+
+  it('maps an unexpected I/O problem to a retryable EvidenceSealError without echoing it', async () => {
+    const blocker = path.join(evidenceRoot, 'file');
+    await writeFile(blocker, 'x');
+    const acts = createScanActivities(deps(runnerFor(outcome()), { evidenceRoot: path.join(blocker, 'sub') }));
+    const failure = await expectFailure(acts.sealEvidence({ run, source, repoUrl: REPO_URL, usedRecordIds: [], workflowId: 'wf-seal' }), 'EvidenceSealError', false);
+    expect(failure.message).toBe('evidence seal: bundle could not be sealed');
   });
 });

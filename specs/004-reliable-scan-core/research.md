@@ -211,3 +211,11 @@ Overgeslagen: geen nieuwe externe technologie. Alle bouwstenen zijn Node-ingebou
 ## R14 addendum (2026-10-03): packages without a license field
 
 Decided during implementation: a package without a `license` field in the lockfile does not make the license check `partial`. The scan stays `completed`, and one summary P3 finding lists the count and the first names, and `causeDetail` repeats the count. Unknown is shown as a finding, not as clean. A lockfileVersion 1 file has no license fields and gives `partial/unsupported-lockfile`; an unknown lockfileVersion gives `failed/unsupported-lockfile`. Reason: marking every audit incomplete over a few unlabeled packages would make the outcome rule meaningless.
+
+## Implementation addendum (2026-10-03): bundle location, seal coverage, permissions
+
+- **Bundle folder**: one bundle per run at `<TESSERA_EVIDENCE_ROOT>/<temporalRunId>` (not `<workflowSlug>-<temporalRunId>` as R7 describes). Reason: source evidence and scan evidence must live in one folder with one run id; the slug added nothing but a second naming rule. The workflow id is recorded in the manifest.
+- **What the root hash covers**: only `seq`, `path` and `sha256` of each entry feed the hash chain. The manifest fields `used`, `kind`, `recordId`, `source` and `sealedAt` are not covered by the root hash and can be altered undetected until the signature over the manifest bytes (US6, FR-018) exists. The report therefore says `Integrity: hashes only; the manifest is not signed`.
+- **Permissions**: the bundle folder is 0500 and `manifest.json` 0400 after sealing; `records/` and `artifacts/` stay 0700 because test teardown needs to remove them. Files in them are 0400. Verification reports any extra file. This is weaker than R9; the storage-level fix belongs to roadmap item 010.
+- **Seal on retry**: sealing an already sealed bundle verifies and returns the existing result (idempotent), it never rewrites the manifest.
+

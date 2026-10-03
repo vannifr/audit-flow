@@ -45,6 +45,7 @@ const {
   crossValidate,
   generateReport,
   cleanupRun,
+  sealEvidence,
 } = proxyActivities<typeof activities>({
   startToCloseTimeout: '1 hour',
   retry: {
@@ -112,6 +113,30 @@ export async function applicationAudit(input: AuditInput): Promise<AuditResult> 
 
   let run: AuditRun | undefined;
   let cleaned = false;
+  let sealed: EvidenceSummary | undefined;
+  let sealSource: FetchedSource | null = null;
+  let sealAttempted = false;
+  let sourceRecordIds: string[] = [];
+
+  const seal = async (usedRecordIds: string[]): Promise<EvidenceSummary> => {
+    if (sealed !== undefined) return sealed;
+    if (run === undefined) throw new Error('no audit run to seal');
+    sealAttempted = true;
+    const result = await sealEvidence({ run, source: sealSource, repoUrl: input.repoUrl, usedRecordIds: unique(usedRecordIds), workflowId });
+    if (result?.selfVerified !== true) {
+      throw ApplicationFailure.create({ type: 'EvidenceSealError', message: 'Evidence bundle failed its self-verification', nonRetryable: true });
+    }
+    sealed = { bundlePath: result.bundlePath, rootHash: result.rootHash, recordCount: result.recordCount };
+    return sealed;
+  };
+
+  const sealBestEffort = async (usedRecordIds: string[]): Promise<EvidenceSummary | undefined> => {
+    try {
+      return await seal(usedRecordIds);
+    } catch {
+      return undefined;
+    }
+  };
 
   const removeWorkDir = async (): Promise<void> => {
     if (run === undefined || cleaned) return;
@@ -129,12 +154,15 @@ export async function applicationAudit(input: AuditInput): Promise<AuditResult> 
       source = await fetchSource(run, input.repoUrl);
     } catch (error) {
       if (isCancellation(error)) throw error;
-      const failure = sourceFailure(error);
+      const evidence = await sealBestEffort(sourceEvidenceIds(error));
+      const failure = sourceFailure(error, evidence);
       state.outcome = 'incomplete';
       state.notPerformed = (failure.details?.[0] as { notPerformed: NotPerformed[] }).notPerformed;
       throw failure;
     }
     state.revision = source.revision;
+    sealSource = source;
+    sourceRecordIds = stringList(source.evidenceRecordIds);
     const repoPath = source.repoDir;
 
     // Detect tech stack
@@ -149,10 +177,12 @@ export async function applicationAudit(input: AuditInput): Promise<AuditResult> 
 
     // Guardrail: Input validation
     if (!state.techStack || !state.techStack.frameworks.length) {
+      const evidence = await sealBestEffort(sourceRecordIds);
       throw ApplicationFailure.create({
         type: 'TechStackNotDetectedError',
         message: 'Could not detect tech stack - aborting audit',
         nonRetryable: true,
+        details: evidenceDetails(evidence),
       });
     }
 
@@ -186,6 +216,12 @@ export async function applicationAudit(input: AuditInput): Promise<AuditResult> 
     state.outcome = decision.outcome;
     state.notPerformed = decision.notPerformed;
     state.findings = [...scanFindings, ...review.findings];
+
+    const evidence = await seal([
+      ...sourceRecordIds,
+      ...scanners.flatMap((s) => s.evidenceRecordIds),
+      ...state.findings.map((f) => f as ScanFinding).filter((f) => traced(f, recordIds)).map((f) => f.evidenceRef?.recordId ?? ''),
+    ]);
 
     // ==================== FASE 3: COMPLIANCE MAPPING ====================
     state.currentPhase = 'compliance';
@@ -229,6 +265,7 @@ export async function applicationAudit(input: AuditInput): Promise<AuditResult> 
           type: 'AuditRejectedError',
           message: 'Audit rejected: P0 findings not approved within timeout',
           nonRetryable: true,
+          details: evidenceDetails(evidence),
         });
       }
     }
@@ -250,6 +287,7 @@ export async function applicationAudit(input: AuditInput): Promise<AuditResult> 
       notPerformed: decision.notPerformed,
       scanners,
       revision: source.revision,
+      evidence: { bundlePath: evidence.bundlePath, rootHash: evidence.rootHash },
     });
 
     state.currentPhase = 'completed';
@@ -269,10 +307,12 @@ export async function applicationAudit(input: AuditInput): Promise<AuditResult> 
       scanners,
       source: { repoUrl: input.repoUrl, revision: source.revision },
       reviewAdvice,
+      evidence,
     };
   } catch (error) {
     state.currentPhase = 'failed';
     state.error = error instanceof Error ? error.message : String(error);
+    if (run !== undefined && !sealAttempted && !isCancellation(error)) await sealBestEffort(sourceRecordIds);
 
     throw error;
   } finally {
@@ -285,7 +325,32 @@ function failureType(error: unknown): string {
   return cause instanceof ApplicationFailure && typeof cause.type === 'string' ? cause.type : 'unknown';
 }
 
-function sourceFailure(error: unknown): ApplicationFailure {
+interface EvidenceSummary {
+  bundlePath: string;
+  rootHash: string;
+  recordCount: number;
+}
+
+function unique(ids: string[]): string[] {
+  return [...new Set(ids.filter((id) => typeof id === 'string' && id.length > 0))];
+}
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
+}
+
+function sourceEvidenceIds(error: unknown): string[] {
+  const cause = error instanceof ActivityFailure ? error.cause : error;
+  if (!(cause instanceof ApplicationFailure)) return [];
+  const detail = cause.details?.[0] as { evidenceRecordIds?: unknown } | undefined;
+  return stringList(detail?.evidenceRecordIds);
+}
+
+function evidenceDetails(evidence: EvidenceSummary | undefined): unknown[] {
+  return evidence === undefined ? [] : [{ evidence: { bundlePath: evidence.bundlePath, rootHash: evidence.rootHash } }];
+}
+
+function sourceFailure(error: unknown, evidence: EvidenceSummary | undefined): ApplicationFailure {
   const network = failureType(error) === 'SourceNetworkError';
   const notPerformed: NotPerformed = {
     scanner: 'source',
@@ -299,7 +364,13 @@ function sourceFailure(error: unknown): ApplicationFailure {
     type: network ? 'SourceNetworkError' : 'SourceUnavailableError',
     message: `Audit not performed: ${notPerformed.summary}`,
     nonRetryable: !network,
-    details: [{ outcome: 'incomplete', notPerformed: [notPerformed] }],
+    details: [
+      {
+        outcome: 'incomplete',
+        notPerformed: [notPerformed],
+        ...(evidence === undefined ? {} : { evidence: { bundlePath: evidence.bundlePath, rootHash: evidence.rootHash } }),
+      },
+    ],
     cause: error instanceof Error ? error : undefined,
   });
 }

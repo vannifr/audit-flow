@@ -206,3 +206,48 @@ describe('report outcome block (FR-016, TS-007)', () => {
     expect(await readdir(path.join(out, 'evidence'))).not.toContain('scanner-status.json');
   });
 });
+
+describe('report evidence section (FR-017, R9)', () => {
+  const ROOT = '0123456789abcdef'.repeat(4);
+  const BUNDLE = '/var/lib/tessera/evidence/run-1';
+
+  it('shows bundle, root hash, the verify command, the sha256sum limit and the unsigned state after the source revision', async () => {
+    const report = await render({
+      outcome: 'complete',
+      notPerformed: [],
+      scanners: ALL_COMPLETED,
+      revision: 'a'.repeat(40),
+      evidence: { bundlePath: BUNDLE, rootHash: ROOT },
+    });
+    const lines = report.split('\n');
+    const revision = lines.indexOf(`Source revision: ${'a'.repeat(40)}`);
+    expect(revision).toBeGreaterThan(0);
+    expect(lines.slice(revision + 2, revision + 7)).toEqual([
+      `Evidence bundle: ${BUNDLE}`,
+      `Evidence root hash: ${ROOT}`,
+      `Verify: npm run evidence:verify -- ${BUNDLE} --expect-root ${ROOT}`,
+      'Without Tessera, `sha256sum -c SHA256SUMS` in the bundle folder detects only changed or missing files; added files, the hash chain and the root hash need the verify command.',
+      'Integrity: hashes only; the manifest is not signed',
+    ]);
+    expect(report.indexOf('Evidence bundle:')).toBeLessThan(report.indexOf('# Audit Report'));
+    expect(report.toLowerCase()).not.toMatch(/assurance level|level [0-9]/);
+  });
+
+  it('keeps the evidence section on an incomplete audit', async () => {
+    const report = await render({ outcome: 'incomplete', notPerformed: [], scanners: ALL_COMPLETED, evidence: { bundlePath: BUNDLE, rootHash: ROOT } });
+    expect(report).toContain(`Evidence root hash: ${ROOT}`);
+  });
+
+  it('quotes a bundle path with spaces or quotes in the verify command and strips line breaks', async () => {
+    const odd = "/tmp/my evidence/it's\nhere";
+    const report = await render({ outcome: 'complete', notPerformed: [], scanners: ALL_COMPLETED, evidence: { bundlePath: odd, rootHash: ROOT } });
+    expect(report).toContain("Evidence bundle: /tmp/my evidence/it's here");
+    expect(report).toContain(`Verify: npm run evidence:verify -- '/tmp/my evidence/it'\\''s here' --expect-root ${ROOT}`);
+  });
+
+  it('omits the evidence section when no bundle was sealed', async () => {
+    const report = await render({ outcome: 'complete', notPerformed: [], scanners: ALL_COMPLETED });
+    expect(report).not.toContain('Evidence bundle');
+    expect(report).not.toContain('Integrity:');
+  });
+});
