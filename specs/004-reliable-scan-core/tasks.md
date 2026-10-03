@@ -69,9 +69,9 @@ each marked `superseded by FR-xxx` in the commit body. No adapters with the old 
   - Tier B. Produces: red tests for FR-005, FR-006, FR-011, FR-015.
 - [x] T011 Implement `src/evidence/store.ts` and `src/evidence/hash.ts`: staging then exclusive `link()` publish, deterministic record ids, 0600/0400 permissions, `lstat` checks, two hashes per artifact to pass [TS-013, TS-015, TS-017, TS-018, TS-019]
   - Tier C (integrity of stored evidence). Files: `src/evidence/store.ts`, `src/evidence/hash.ts`. Consumes: `contracts/evidence-record.ts`, R8, R10. Produces: `EvidenceStore`.
-- [ ] T012 [P] Write failing unit tests for `runTool` with a fake `ProcessRunner`: ENOENT, timeout, truncation, env allow-list, no shell, version probe [TS-008, TS-009, TS-010] in `tests/unit/scan/run-tool.test.ts`
+- [x] T012 [P] Write failing unit tests for `runTool` with a fake `ProcessRunner`: ENOENT, timeout, truncation, env allow-list, no shell, version probe [TS-008, TS-009, TS-010] in `tests/unit/scan/run-tool.test.ts`
   - Tier B. Consumes: `contracts/run-tool.ts`. Produces: red tests for FR-005, FR-006, FR-013.
-- [ ] T013 Implement `src/scan/process-runner.ts`, `src/scan/run-tool.ts`, `src/scan/env.ts` (execFile, array args, `GIT_TERMINAL_PROMPT=0`, env allow-list incl. `EIO_BACKEND`, output cap 64 MiB, record per step) to pass [TS-008, TS-009, TS-010]
+- [x] T013 Implement `src/scan/process-runner.ts`, `src/scan/run-tool.ts`, `src/scan/env.ts` (execFile, array args, `GIT_TERMINAL_PROMPT=0`, env allow-list incl. `EIO_BACKEND`, output cap 64 MiB, record per step) to pass [TS-008, TS-009, TS-010]
   - Tier C (trust boundary: no shell, nothing from the audited source reaches a command). Files: `src/scan/process-runner.ts`, `src/scan/run-tool.ts`, `src/scan/env.ts`. Consumes: T007, T009, T011. Produces: `runTool`.
 - [ ] T014 [P] Write failing unit tests for the run lifecycle: `initAuditRun`, `fetchSource` (clone via `runTool`, `rev-parse`), `cleanupRun` on every exit path, unreachable source [TS-011, TS-014, TS-018] in `tests/unit/scan/lifecycle.test.ts`
   - Tier B. Produces: red tests for FR-008, FR-015 and the edge cases.
