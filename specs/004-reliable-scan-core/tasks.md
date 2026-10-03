@@ -65,9 +65,9 @@ each marked `superseded by FR-xxx` in the commit body. No adapters with the old 
   - Tier B. Produces: red tests for FR-012.
 - [x] T009 Implement `src/evidence/redact.ts` (do not store, allow-listed fields per tool, pattern backstop) to pass [TS-027, TS-028]
   - Tier C (security: no secret reaches evidence, history or logs). Files: `src/evidence/redact.ts`. Consumes: R11, R12.
-- [ ] T010 [P] Write failing unit tests for the evidence store and hashing [TS-013, TS-015, TS-017, TS-018, TS-019] in `tests/unit/evidence/store.test.ts` (tmp root)
+- [x] T010 [P] Write failing unit tests for the evidence store and hashing [TS-013, TS-015, TS-017, TS-018, TS-019] in `tests/unit/evidence/store.test.ts` (tmp root)
   - Tier B. Produces: red tests for FR-005, FR-006, FR-011, FR-015.
-- [ ] T011 Implement `src/evidence/store.ts` and `src/evidence/hash.ts`: staging then exclusive `link()` publish, deterministic record ids, 0600/0400 permissions, `lstat` checks, two hashes per artifact to pass [TS-013, TS-015, TS-017, TS-018, TS-019]
+- [x] T011 Implement `src/evidence/store.ts` and `src/evidence/hash.ts`: staging then exclusive `link()` publish, deterministic record ids, 0600/0400 permissions, `lstat` checks, two hashes per artifact to pass [TS-013, TS-015, TS-017, TS-018, TS-019]
   - Tier C (integrity of stored evidence). Files: `src/evidence/store.ts`, `src/evidence/hash.ts`. Consumes: `contracts/evidence-record.ts`, R8, R10. Produces: `EvidenceStore`.
 - [ ] T012 [P] Write failing unit tests for `runTool` with a fake `ProcessRunner`: ENOENT, timeout, truncation, env allow-list, no shell, version probe [TS-008, TS-009, TS-010] in `tests/unit/scan/run-tool.test.ts`
   - Tier B. Consumes: `contracts/run-tool.ts`. Produces: red tests for FR-005, FR-006, FR-013.
