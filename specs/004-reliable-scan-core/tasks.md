@@ -57,9 +57,9 @@ each marked `superseded by FR-xxx` in the commit body. No adapters with the old 
 **Purpose**: the shared core every story needs: status model, redaction, evidence store, `runTool`, run lifecycle.
 **Checkpoint**: unit tests green; coverage per-glob gate proven to fail; no scanner is migrated yet.
 
-- [ ] T006 [P] Write failing unit tests for the status model and outcome rule [TS-001, TS-002, TS-003, TS-004, TS-005, TS-006] in `tests/unit/scan/status.test.ts`
+- [x] T006 [P] Write failing unit tests for the status model and outcome rule [TS-001, TS-002, TS-003, TS-004, TS-005, TS-006] in `tests/unit/scan/status.test.ts`
   - Tier B. Consumes: `contracts/scanner-status.ts`, quickstart scenario 1. Produces: red tests for FR-001, FR-002, FR-003, FR-004.
-- [ ] T007 Implement `src/scan/status.ts`: five statuses, `computeOutcome`, `notPerformed`, `mayReportClean`, applicability table to pass [TS-001, TS-002, TS-003, TS-004, TS-005, TS-006]
+- [x] T007 Implement `src/scan/status.ts`: five statuses, `computeOutcome`, `notPerformed`, `mayReportClean`, applicability table to pass [TS-001, TS-002, TS-003, TS-004, TS-005, TS-006]
   - Tier C (guarantee: no clean result without a completed scan). Files: `src/scan/status.ts`, additive types in `src/types/index.ts`. Consumes: R4. Produces: `ScannerStatusEntry`, `computeOutcome`.
 - [ ] T008 [P] Write failing unit tests for redaction using the demo secret shapes [TS-027, TS-028] in `tests/unit/evidence/redact.test.ts`
   - Tier B. Produces: red tests for FR-012.
@@ -77,7 +77,7 @@ each marked `superseded by FR-xxx` in the commit body. No adapters with the old 
   - Tier B. Produces: red tests for FR-008, FR-015 and the edge cases.
 - [ ] T015 Implement `src/scan/lifecycle.ts` (private work dir `<tmp>/tessera-<temporalRunId>`, source revision, cleanup guard that refuses paths outside the work dir) to pass [TS-011, TS-014, TS-018]; keep `validateRepoUrl` unchanged
   - Tier C (clones untrusted input). Files: `src/scan/lifecycle.ts`, `src/activities/index.ts` (wire `initAuditRun`, `fetchSource`, `cleanupRun`). Supersedes tests of `cloneRepository` (note in commit).
-- [ ] T016 Add per-glob coverage thresholds 90/85/90/90 for `src/scan/**` and `src/evidence/**` in `vitest.config.ts` and prove the gate fails (scratch copy with one test disabled, record exit code in the commit body)
+- [x] T016 Add per-glob coverage thresholds 90/85/90/90 for `src/scan/**` and `src/evidence/**` in `vitest.config.ts` and prove the gate fails (scratch copy with one test disabled, record exit code in the commit body)
   - Tier B. Files: `vitest.config.ts`. Consumes: T007 to T015.
 
 ---
