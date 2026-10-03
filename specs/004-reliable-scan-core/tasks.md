@@ -92,7 +92,7 @@ each marked `superseded by FR-xxx` in the commit body. No adapters with the old 
   - Tier B. Consumes: T002, R3. Produces: red tests for exit-code policies (gitleaks 42, semgrep crash, npm exit 1 with JSON).
 - [x] T018 [US1] Migrate `runGitleaks` to `runTool` with framework config, `--exit-code 42`, `--redact`, `--ignore-gitleaks-allow` to pass [TS-002, TS-004, TS-005] in `src/activities/index.ts` and `src/scan/tools/gitleaks.ts`
   - Tier B. Consumes: T013. Produces: `ScanStepResult` for gitleaks. Supersedes old gitleaks tests.
-- [ ] T019 [US1] Migrate `runSemgrep` to `runTool` with `--metrics=off`, packs `p/javascript` and `p/nodejs`, `--disable-nosem`, `EIO_BACKEND=posix`, crash classified as failed to pass [TS-002, TS-005, TS-010] in `src/scan/tools/semgrep.ts`
+- [x] T019 [US1] Migrate `runSemgrep` to `runTool` with `--metrics=off`, packs `p/javascript` and `p/nodejs`, `--disable-nosem`, `EIO_BACKEND=posix`, crash classified as failed to pass [TS-002, TS-005, TS-010] in `src/scan/tools/semgrep.ts`
   - Tier B. Consumes: T013, research R6. Produces: `ScanStepResult` for semgrep. Supersedes old semgrep tests.
 - [ ] T020 [US1] Replace the `npx license-checker` call by an in-process license check from the lockfile to pass [TS-005] in `src/scan/tools/licenses.ts`
   - Tier C (removes code execution from the audited source). Consumes: R14. Produces: `ScanStepResult` for license check.
