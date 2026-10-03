@@ -45,7 +45,7 @@ each marked `superseded by FR-xxx` in the commit body. No adapters with the old 
   - Tier B (needs judgment which output is representative). Files: `tests/fixtures/tools/*.json`. Produces: input for policy unit tests.
 - [ ] T003 [P] Make cucumber load `specs/004-reliable-scan-core/tests/step_definitions/` and add a failing skeleton (undefined steps) in `.cucumber.js`; the `.feature` files stay untouched
   - Tier B. Files: `.cucumber.js`, `specs/004-reliable-scan-core/tests/step_definitions/skeleton.steps.ts`. Produces: BDD runner that executes 004 scenarios.
-- [ ] T004 [P] Add `test:tools` script and `tests/contract/vitest.config.ts` (real tools, not part of `verify`); document in README
+- [x] T004 [P] Add `test:tools` script and `tests/contract/vitest.config.ts` (real tools, not part of `verify`); document in README
   - Tier A. Files: `package.json`, `tests/contract/vitest.config.ts`, `README.md`.
 - [ ] T005 Add `npm run test:bdd` to `verify:full` only after T003 shows the 004 scenarios as undefined (red), never before
   - Tier A. Files: `package.json`. Consumes: T003.

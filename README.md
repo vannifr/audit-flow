@@ -182,6 +182,7 @@ secret scan; pre-push runs `verify:full`.
 - Lighthouse, axe and k6 are not CI steps. The earlier placeholder steps were removed
   because they checked nothing.
 - CI images are pinned by digest. Bump them deliberately and update the digest.
+- `npm run test:tools` runs contract tests against the real tools (gitleaks, semgrep, npm). It is not part of `verify` or CI because the CI image lacks the tools.
 
 ### Coverage Thresholds
 
