@@ -118,7 +118,7 @@ each marked `superseded by FR-xxx` in the commit body. No adapters with the old 
   - Tier C (integrity chain). Files: `src/evidence/manifest.ts`, `src/activities/index.ts`. Produces: sealed bundle and `rootHash`.
 - [x] T027 [US2] Add `evidenceRef` to every finding in all migrated scan activities [TS-012, TS-013] in `src/scan/tools/*.ts` and `src/types/index.ts`
   - Tier B. Consumes: T018 to T021, T011. Produces: finding to record link (FR-007).
-- [ ] T028 [US2] Write step definitions for `evidence-records.feature` and run them green [TS-012, TS-013, TS-014, TS-015, TS-016, TS-017, TS-018, TS-019, TS-020] in `.../evidence-records.steps.ts`
+- [x] T028 [US2] Write step definitions for `evidence-records.feature` and run them green [TS-012, TS-013, TS-014, TS-015, TS-016, TS-017, TS-018, TS-019, TS-020] in `.../evidence-records.steps.ts`
   - Tier B.
 
 ---
@@ -143,7 +143,7 @@ each marked `superseded by FR-xxx` in the commit body. No adapters with the old 
   - Tier B. Consumes: `contracts/verify-contract.md`.
 - [x] T033 [US4] Implement `src/evidence/verify.ts` and `src/cli/verify-evidence.ts` plus script `evidence:verify` to pass [TS-024, TS-025, TS-026]
   - Tier C (integrity logic). Produces: `VerifyReport`, exit codes.
-- [ ] T034 [US4] Write step definitions for `evidence-verification.feature` and run them green [TS-024, TS-025, TS-026]
+- [x] T034 [US4] Write step definitions for `evidence-verification.feature` and run them green [TS-024, TS-025, TS-026]
   - Tier B.
 
 ---
@@ -156,7 +156,7 @@ each marked `superseded by FR-xxx` in the commit body. No adapters with the old 
   - Tier C (key handling). Files: `src/evidence/sign.ts`, `src/cli/evidence-keygen.ts`, `src/evidence/verify.ts`. Rule: key outside `TESSERA_EVIDENCE_ROOT`, 0600, never logged or put in history.
 - [x] T037 [US6] Add computed assurance level, signing time disclaimer and `TESSERA_REQUIRE_SIGNATURE` handling to workflow result and report [TS-034, TS-036]; make the product name configurable (default Tessera) and the report language English with an optional Dutch setting
   - Tier B. Files: `src/workflows/index.ts`, `src/scan/report.ts`, `src/config.ts`.
-- [ ] T038 [US6] Write step definitions for `signed-evidence.feature` and run them green [TS-031, TS-032, TS-033, TS-034, TS-035, TS-036]
+- [x] T038 [US6] Write step definitions for `signed-evidence.feature` and run them green [TS-031, TS-032, TS-033, TS-034, TS-035, TS-036]
   - Tier B.
 
 ---

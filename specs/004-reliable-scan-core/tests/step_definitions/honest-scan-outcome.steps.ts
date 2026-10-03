@@ -156,7 +156,12 @@ Then('the audit outcome is {string}', function (this: HonestScanWorld, label: st
   const expected = label.toLowerCase();
   assert.equal(result.outcome, expected);
   assert.equal(report.outcome, expected);
-  const decision = computeOutcome({ scanners: result.scanners, untracedFindingIds: [] });
+  const level = (report.signature as { level?: number } | undefined)?.level === 1 ? 1 : 0;
+  const decision = computeOutcome({
+    scanners: result.scanners,
+    untracedFindingIds: [],
+    ...(this.requireSignature ? { evidenceSignature: { required: true, level } } : {}),
+  });
   assert.equal(decision.outcome, expected);
 });
 

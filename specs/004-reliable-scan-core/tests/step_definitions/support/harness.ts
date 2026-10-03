@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import Module from 'node:module';
-import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { RetryState } from '@temporalio/common';
 import type { AuditRun, FetchedSource } from '../../../../../src/scan/lifecycle';
 import type { ScannerId, ScannerStatusEntry } from '../../../../../src/scan/status';
@@ -42,7 +43,16 @@ const ACTIVITY: Record<string, string> = {
   'license-check': 'runLicenseCheck',
 };
 
-const state = { attempt: 1, activities: {} as Record<string, Fn>, calls: [] as string[] };
+interface ActivityState {
+  runId: string;
+  attempt: number;
+  activities: Record<string, Fn>;
+  calls: string[];
+}
+
+const fallbackState: ActivityState = { runId: RUN_ID, attempt: 1, activities: {}, calls: [] };
+const stateStore = new AsyncLocalStorage<ActivityState>();
+const currentState = (): ActivityState => stateStore.getStore() ?? fallbackState;
 
 const moduleInternals = Module as unknown as { _load: (request: string, ...rest: unknown[]) => unknown };
 const originalLoad = moduleInternals._load;
@@ -59,6 +69,7 @@ moduleInternals._load = function load(request: string, ...rest: unknown[]): unkn
             {
               get: (_target, name: string) =>
                 (...args: unknown[]) => {
+                  const state = currentState();
                   state.calls.push(name);
                   const impl = state.activities[name];
                   if (impl === undefined) throw new Error(`unexpected activity ${name}`);
@@ -66,7 +77,7 @@ moduleInternals._load = function load(request: string, ...rest: unknown[]): unkn
                 },
             },
           ),
-        workflowInfo: () => ({ workflowId: 'wf-bdd', runId: RUN_ID }),
+        workflowInfo: () => ({ workflowId: 'wf-bdd', runId: currentState().runId }),
         setHandler: () => undefined,
         condition: async (fn: () => boolean) => fn(),
       });
@@ -75,7 +86,7 @@ moduleInternals._load = function load(request: string, ...rest: unknown[]): unkn
   }
   if (request === '@temporalio/activity') {
     if (!patched.has(request)) {
-      patched.set(request, { ...(real as object), Context: { current: () => ({ info: { attempt: state.attempt } }) } });
+      patched.set(request, { ...(real as object), Context: { current: () => ({ info: { attempt: currentState().attempt } }) } });
     }
     return patched.get(request);
   }
@@ -118,6 +129,7 @@ export function failureOf(error: unknown): { type: string; nonRetryable: boolean
 }
 
 export class ScanWorld {
+  runId = RUN_ID;
   tmpRoot = '';
   evidenceRoot = '';
   run!: AuditRun;
@@ -131,14 +143,27 @@ export class ScanWorld {
   reportInput: Record<string, unknown> | undefined;
   activityCalls: string[] = [];
   focus: ScannerId | undefined;
+  activityWrap: ((name: string, impl: Fn) => Fn) | undefined;
   directOutcome: ProcessOutcome | undefined;
   direct: ToolRunResult<unknown> | undefined;
+  signingKeyPath: string | null = null;
+  requireSignature = false;
+  keyDir = '';
 
-  async prepare(): Promise<void> {
+  async provisionKey(keyPath?: string): Promise<{ keyPath: string; publicKeyPath: string; keyId: string }> {
+    if (this.keyDir === '') this.keyDir = await mkdtemp(path.join(os.tmpdir(), 'tessera-bdd-key-'));
+    const target = keyPath ?? path.join(this.keyDir, `key-${randomBytes(4).toString('hex')}.pem`);
+    const { generateSigningKey } = await import('../../../../../src/evidence/sign');
+    const { keyId, publicKeyPath } = await generateSigningKey(target);
+    return { keyPath: target, publicKeyPath, keyId };
+  }
+
+  async prepare(options: { runId?: string; evidenceRoot?: string } = {}): Promise<void> {
+    this.runId = options.runId ?? RUN_ID;
     this.tmpRoot = await mkdtemp(path.join(os.tmpdir(), 'tessera-bdd-'));
-    this.evidenceRoot = await mkdtemp(path.join(os.tmpdir(), 'tessera-bdd-ev-'));
-    const workDir = path.join(this.tmpRoot, `tessera-${RUN_ID}`);
-    this.run = { runId: RUN_ID, workDir, repoDir: path.join(workDir, 'repo') };
+    this.evidenceRoot = options.evidenceRoot ?? (await mkdtemp(path.join(os.tmpdir(), 'tessera-bdd-ev-')));
+    const workDir = path.join(this.tmpRoot, `tessera-${this.runId}`);
+    this.run = { runId: this.runId, workDir, repoDir: path.join(workDir, 'repo') };
     this.source = { repoDir: this.run.repoDir, revision: REVISION };
     await mkdir(this.run.repoDir, { recursive: true, mode: 0o700 });
     await mkdir(path.join(workDir, 'home'), { mode: 0o700 });
@@ -160,9 +185,12 @@ export class ScanWorld {
   }
 
   async dispose(): Promise<void> {
-    await chmod(path.join(this.evidenceRoot, RUN_ID), 0o700).catch(() => undefined);
+    for (const name of await readdir(this.evidenceRoot).catch(() => [] as string[])) {
+      await chmod(path.join(this.evidenceRoot, name), 0o700).catch(() => undefined);
+    }
     await rm(this.tmpRoot, { recursive: true, force: true });
     await rm(this.evidenceRoot, { recursive: true, force: true });
+    if (this.keyDir !== '') await rm(this.keyDir, { recursive: true, force: true });
   }
 
   setTool(scanner: ScannerId, behaviour: RunnerBehaviour): void {
@@ -205,6 +233,8 @@ export class ScanWorld {
       frameworkVersion: '0.0.0-bdd',
       workerEnv: { PATH: '/usr/bin' },
       configDir: '/opt/tessera/config/scanners',
+      signingKeyPath: this.signingKeyPath,
+      requireSignature: this.requireSignature,
     });
     const lifecycle = await import('../../../../../src/scan/lifecycle');
     const { ActivityFailure, ApplicationFailure } = await import('@temporalio/workflow');
@@ -215,7 +245,7 @@ export class ScanWorld {
           try {
             return await lifecycle.fetchSource(run, repoUrl, {
               runner: this.runner(),
-              store: (await import('../../../../../src/evidence/store')).createEvidenceStore(this.evidenceRoot, RUN_ID),
+              store: (await import('../../../../../src/evidence/store')).createEvidenceStore(this.evidenceRoot, this.runId),
               clock: () => T0,
               frameworkVersion: '0.0.0-bdd',
               tmpRoot: this.tmpRoot,
@@ -252,21 +282,22 @@ export class ScanWorld {
       },
       cleanupRun: async (run: unknown) => lifecycle.cleanupRun(run as AuditRun, this.tmpRoot),
       sealEvidence: scans.sealEvidence,
+      signEvidence: scans.signEvidence,
     };
-    state.activities = {};
-    state.calls = [];
-    state.attempt = 1;
+    const state: ActivityState = { runId: this.runId, attempt: 1, activities: {}, calls: [] };
     for (const [name, impl] of Object.entries(fakes)) {
-      state.activities[name] = impl as Fn;
+      state.activities[name] = this.activityWrap ? this.activityWrap(name, impl as Fn) : (impl as Fn);
     }
     const { applicationAudit } = (await import('../../../../../src/workflows/index')) as {
       applicationAudit: (input: AuditInput) => Promise<AuditResult>;
     };
-    try {
-      this.result = await applicationAudit(INPUT);
-    } catch (error) {
-      this.error = error;
-    }
+    await stateStore.run(state, async () => {
+      try {
+        this.result = await applicationAudit(INPUT);
+      } catch (error) {
+        this.error = error;
+      }
+    });
     this.activityCalls = [...state.calls];
   }
 
@@ -288,7 +319,7 @@ export class ScanWorld {
       {
         stepId: 'scan.empty-tool',
         attempt: 1,
-        runId: RUN_ID,
+        runId: this.runId,
         source: { repoUrl: REPO_URL, revision: REVISION },
         args: ['run', 'check'],
         cwd: this.run.repoDir,
@@ -299,7 +330,7 @@ export class ScanWorld {
       policy,
       {
         runner: async (req) => (req.args.length === 1 ? outcome({ stdout: Buffer.from('1.2.3\n') }) : main),
-        store: createEvidenceStore(this.evidenceRoot, RUN_ID),
+        store: createEvidenceStore(this.evidenceRoot, this.runId),
         clock: () => T0,
         frameworkVersion: '0.0.0-bdd',
       },
@@ -307,7 +338,7 @@ export class ScanWorld {
   }
 
   async directRecord(): Promise<Record<string, any>> {
-    return JSON.parse(await readFile(path.join(this.evidenceRoot, RUN_ID, 'records', 'scan.empty-tool.a1.json'), 'utf8')) as Record<string, any>;
+    return JSON.parse(await readFile(path.join(this.evidenceRoot, this.runId, 'records', 'scan.empty-tool.a1.json'), 'utf8')) as Record<string, any>;
   }
 
   called(name: string): boolean {
@@ -322,7 +353,7 @@ export class ScanWorld {
   }
 
   async evidenceRecord(scanner: ScannerId): Promise<Record<string, any>> {
-    const file = path.join(this.evidenceRoot, RUN_ID, 'records', `scan.${scanner}.a1.json`);
+    const file = path.join(this.evidenceRoot, this.runId, 'records', `scan.${scanner}.a1.json`);
     return JSON.parse(await readFile(file, 'utf8')) as Record<string, any>;
   }
 
