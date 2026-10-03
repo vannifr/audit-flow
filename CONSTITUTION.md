@@ -1,7 +1,9 @@
 <!--
 Sync Impact Report
-Version change: 1.0.0 -> 2.0.0 (MAJOR: sections removed, principle claims redefined)
-Added principles: VI Evidence-First, VII No False Comfort, VIII Untrusted Input
+Version change: 2.0.0 -> 2.1.0 (MINOR: new principle XII Assurance Ratchet)
+Previous: 1.0.0 -> 2.0.0 (MAJOR: sections removed, principle claims redefined)
+Added principles (2.1.0): XII Assurance Ratchet
+Added principles (2.0.0): VI Evidence-First, VII No False Comfort, VIII Untrusted Input
   Isolation, IX Human Accountability, X Claims Match Reality, XI Independent
   Verification
 Modified principles: II (coverage floor must be enforced by a gate that can
@@ -11,7 +13,8 @@ Removed sections: Technology Stack, Quality Metrics, Non-Functional Requirement
   and configuration belong in plan.md per phase separation)
 Removed claims: "build fails if coverage < 80%" and "64.89% coverage, 161 tests"
   (disproved by docs/review-report.md)
-Follow-up TODOs: carry the removed technology, tooling and measurable NFR
+Follow-up TODOs: define the assurance levels and their exit criteria as executable
+  gates (docs/assurance-roadmap.md); carry the removed technology, tooling and measurable NFR
   content into the plan of the next feature; align specs 001-003 with the
   .spec.md format; regenerate assertion hashes via /iikit-04-testify.
 Project codename: Tessera (internal). The commercial name is not used here.
@@ -176,6 +179,19 @@ green result is prohibited. A skipped test carries a recorded cause and owner.
   unmeasured
 - Review of delivered work is performed independently of its author, by a
   person, or by the automated pipeline plus structured self-review for solo work
+
+### XII. Assurance Ratchet
+
+**Assurance only increases, and is computed rather than claimed**:
+- The framework defines assurance levels with measurable exit criteria; a released level is
+  never lowered and a gate that has been tightened is never loosened
+- The level shown in an audit report is computed from verification results of that audit,
+  never entered by hand and never inferred from documentation
+- A change that weakens a gate, lowers a threshold, or removes a verification lowers the
+  computed level and is rejected by the pipeline unless it is recorded as a deviation with
+  owner, reason, and deadline
+- Statements about the framework to clients name only the level whose exit criteria are all
+  met, and name the limits of that level
 
 ## Quality Gates
 
@@ -347,4 +363,4 @@ Pre-commit hooks are a critical integrity gate. The following are prohibited:
 
 ---
 
-**Version**: 2.0.0 | **Ratified**: 2026-10-01 | **Last Amended**: 2026-10-02
+**Version**: 2.1.0 | **Ratified**: 2026-10-01 | **Last Amended**: 2026-10-03
