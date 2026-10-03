@@ -50,13 +50,21 @@ crediet gaf (D07 matchte op het woord `express` in Semgrep-regelnamen). Dat maak
 strenger, niet soepeler. Ernstverwachtingen en defecten zijn niet gewijzigd.
 Recall telt zowel "gevonden" als "gevonden met juiste ernst".
 
+Aanscherping van de meting (release-gate, geen versoepeling): `run-demo.js` wijst bevindingen
+strikt één-op-één aan defecten toe (maximale bipartiete toewijzing) en gebruikt het optionele
+veld `line` (de regel in `evidence.line` van de bevinding, waar bekend; een bevinding zonder
+regelnummer blijft toegestaan). D01 (2), D02 (3), D18 (4), D03 (4) en D04 (3) hebben een `line`.
+De eerdere run crediteerde D02 onterecht: de enige bevinding op src/config.js:4 (generic-api-key,
+D18) dekte via de brede tekstmatch ook D02 (regel 3). Ernstverwachtingen, defecten en de
+minimumeis van 8 van 18 zijn niet gewijzigd; de ruime recall blijft ter vergelijking zichtbaar.
+
 ```json
 {
   "vulnerable-app": [
-    {"id":"D01","file":"src/config.js","severity":"P0","match":"AKIA|aws.*(access|key)"},
-    {"id":"D02","file":"src/config.js","severity":"P0","match":"aws.*secret|wJalr|generic-api-key|secret"},
-    {"id":"D03","file":"src/auth.js","severity":"P1","match":"password"},
-    {"id":"D04","file":"src/auth.js","severity":"P1","match":"secret|token|jwt"},
+    {"id":"D01","file":"src/config.js","line":2,"severity":"P0","match":"AKIA|aws.*(access|key)"},
+    {"id":"D02","file":"src/config.js","line":3,"severity":"P0","match":"aws.*secret|wJalr|generic-api-key|secret"},
+    {"id":"D03","file":"src/auth.js","line":4,"severity":"P1","match":"password"},
+    {"id":"D04","file":"src/auth.js","line":3,"severity":"P1","match":"secret|token|jwt"},
     {"id":"D05","file":null,"category":"security-dependencies","severity":"P1","match":"lodash"},
     {"id":"D06","file":null,"category":"security-dependencies","severity":"P0","match":"minimist"},
     {"id":"D07","file":null,"category":"security-dependencies","severity":"P1","match":"express|body-parser|qs|path-to-regexp"},
@@ -66,7 +74,7 @@ Recall telt zowel "gevonden" als "gevonden met juiste ernst".
     {"id":"D11","file":"src/auth.js","severity":"P2","match":"md5|weak.*(hash|crypt)"},
     {"id":"D12","file":"src/server.js","severity":"P2","match":"prototype|merge"},
     {"id":"D13","file":"src/server.js","category":"privacy|observability|security-data","severity":"P1","match":"pii|privacy|log.*(password|email)|sensitive"},
-    {"id":"D18","file":"src/config.js","severity":"P1","match":"api.?key|generic|secret"},
+    {"id":"D18","file":"src/config.js","line":4,"severity":"P1","match":"api.?key|generic|secret"},
     {"id":"D14","file":null,"category":"documentation|compliance|code-quality","severity":"P3","match":"readme|documentation"},
     {"id":"D15","file":null,"category":"cicd","severity":"P3","match":"ci/cd|cicd|pipeline|ci config"},
     {"id":"D16","file":null,"category":"testab|code-quality|functional","severity":"P2","match":"no tests|test"},

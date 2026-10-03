@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-const { spawn, execFileSync } = require('child_process');
+const { spawn, execFileSync, spawnSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const net = require('net');
+const { PLANTED_SECRETS, score, summarize, gate, table } = require('./score');
 
 const ROOT = path.resolve(__dirname, '..');
 const { Connection, Client } = require(path.join(ROOT, 'node_modules/@temporalio/client'));
@@ -87,35 +88,39 @@ function loadExpected() {
   return JSON.parse(m[1]);
 }
 
-function findingText(f) {
-  const ev = (f.evidence || []).map((e) => `${e.file || ''} ${e.content || ''} ${e.type || ''}`).join(' ');
-  return `${f.title || ''} ${f.description || ''} ${f.category || ''} ${ev}`;
-}
-
-function findingFiles(f) {
-  return (f.evidence || []).map((e) => e.file || '').filter(Boolean);
-}
-
-function score(app, findings, expected) {
-  const rows = [];
-  for (const d of expected) {
-    const re = new RegExp(d.match, 'i');
-    const catRe = d.category ? new RegExp(d.category, 'i') : null;
-    const hits = findings.filter((f) => {
-      if (!re.test(findingText(f))) return false;
-      if (catRe && !catRe.test(f.category || '')) return false;
-      if (!d.file) return true;
-      return findingFiles(f).some((p) => p.endsWith(d.file));
-    });
-    rows.push({
-      id: d.id,
-      expectedSeverity: d.severity,
-      found: hits.length > 0,
-      severityOk: hits.some((f) => f.severity === d.severity),
-      reported: hits.map((f) => f.severity).sort().join(',') || '-',
-    });
+function listFiles(dir) {
+  const out = [];
+  if (!fs.existsSync(dir)) return out;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...listFiles(full));
+    else if (entry.isFile()) out.push(full);
   }
-  return rows;
+  return out;
+}
+
+function verifyBundles(evidenceRoot) {
+  const checks = [];
+  if (!fs.existsSync(evidenceRoot)) return checks;
+  for (const entry of fs.readdirSync(evidenceRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const dir = path.join(evidenceRoot, entry.name);
+    const run = spawnSync('npx', ['ts-node', 'src/cli/verify-evidence.ts', dir], { cwd: ROOT, encoding: 'utf-8' });
+    checks.push({ name: entry.name, exit: run.status === null ? 2 : run.status });
+  }
+  return checks;
+}
+
+function sweepSecrets(roots) {
+  const leaks = [];
+  for (const root of roots) {
+    const files = fs.existsSync(root) && fs.statSync(root).isFile() ? [root] : listFiles(root);
+    for (const file of files) {
+      const text = fs.readFileSync(file).toString('latin1');
+      if (PLANTED_SECRETS.some((value) => text.includes(value))) leaks.push({ file });
+    }
+  }
+  return leaks;
 }
 
 async function main() {
@@ -178,6 +183,8 @@ async function main() {
 
   let failed = false;
   const lines = [];
+  let rows = [];
+  let cleanResult = null;
   for (const app of APPS) {
     const r = results[app];
     if (!r.ok) {
@@ -187,21 +194,28 @@ async function main() {
     }
     const findings = r.result.findings || [];
     const bySev = findings.reduce((a, f) => ((a[f.severity] = (a[f.severity] || 0) + 1), a), {});
-    lines.push(`${app}: ${findings.length} bevindingen ${JSON.stringify(bySev)}; rapport ${r.result.reportPath}`);
+    lines.push(`${app}: ${findings.length} bevindingen ${JSON.stringify(bySev)}; outcome ${r.result.outcome}; rapport ${r.result.reportPath}`);
     if (app === 'clean-app') {
-      const fp = findings.length;
-      lines.push(`  vals-positieven: ${fp}`);
+      cleanResult = r.result;
+      lines.push(`  vals-positieven: ${findings.length}`);
       for (const f of findings) lines.push(`    ${f.severity} ${f.title}`);
-      if (fp > 0) failed = true;
     } else {
-      const rows = score(app, findings, expected[app]);
-      const found = rows.filter((x) => x.found).length;
-      const sev = rows.filter((x) => x.found && x.severityOk).length;
-      lines.push(`  recall: ${found}/${rows.length} gevonden, ${sev}/${rows.length} met juiste ernst`);
-      for (const x of rows) lines.push(`    ${x.id} gevonden=${x.found ? 'ja' : 'NEE'} verwacht=${x.expectedSeverity} gerapporteerd=${x.reported}`);
-      if (found < rows.length) failed = true;
+      rows = score(findings, expected[app]);
+      lines.push(table(rows));
     }
   }
+
+  const bundleChecks = verifyBundles(path.join(workDir, 'evidence'));
+  const leaks = sweepSecrets([path.join(workDir, 'evidence'), reportDir, workerLog]);
+  const verdict = gate({ rows, cleanResult, bundleChecks, leaks });
+  const s = summarize(rows);
+  lines.push('');
+  lines.push(`evidence-bundels geverifieerd: ${bundleChecks.length} (${bundleChecks.filter((b) => b.exit === 0).length} ok)`);
+  lines.push(`secret-sweep: ${leaks.length === 0 ? 'schoon' : `${leaks.length} bestand(en) met geplante waarde`}`);
+  lines.push(`recall ruim ${s.broad}/${s.total}, strikt ${s.strict}/${s.total}`);
+  lines.push(`release-gate: ${verdict.pass ? 'GESLAAGD' : 'GEFAALD'}`);
+  for (const f of verdict.failures) lines.push(`  - ${f}`);
+  if (!verdict.pass) failed = true;
   console.log('\n' + lines.join('\n'));
   fs.writeFileSync(path.join(__dirname, 'last-run.json'), JSON.stringify(results, null, 2));
   await connection.close();
