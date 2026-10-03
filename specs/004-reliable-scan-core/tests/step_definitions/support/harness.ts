@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import Module from 'node:module';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -160,6 +160,7 @@ export class ScanWorld {
   }
 
   async dispose(): Promise<void> {
+    await chmod(path.join(this.evidenceRoot, RUN_ID), 0o700).catch(() => undefined);
     await rm(this.tmpRoot, { recursive: true, force: true });
     await rm(this.evidenceRoot, { recursive: true, force: true });
   }
@@ -250,6 +251,7 @@ export class ScanWorld {
         return { reportPath: '/out/audit-report.md', evidencePath: '/out/evidence' };
       },
       cleanupRun: async (run: unknown) => lifecycle.cleanupRun(run as AuditRun, this.tmpRoot),
+      sealEvidence: scans.sealEvidence,
     };
     state.activities = {};
     state.calls = [];
