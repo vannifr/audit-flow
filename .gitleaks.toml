@@ -6,3 +6,7 @@ useDefault = true
 [[allowlists]]
 description = "demo/ bevat bewust geplante nep-secrets als grondwaarheid voor de audit-demo (zie demo/EXPECTED.md); geen echte sleutels"
 paths = ['''^demo/''']
+
+[[allowlists]]
+description = "synthetic secret shapes (fake private-key block, demo tokens) used as input for the redaction unit tests; none are real credentials"
+paths = ['''^tests/unit/evidence/redact\.test\.ts$''']

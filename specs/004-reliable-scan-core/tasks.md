@@ -61,9 +61,9 @@ each marked `superseded by FR-xxx` in the commit body. No adapters with the old 
   - Tier B. Consumes: `contracts/scanner-status.ts`, quickstart scenario 1. Produces: red tests for FR-001, FR-002, FR-003, FR-004.
 - [x] T007 Implement `src/scan/status.ts`: five statuses, `computeOutcome`, `notPerformed`, `mayReportClean`, applicability table to pass [TS-001, TS-002, TS-003, TS-004, TS-005, TS-006]
   - Tier C (guarantee: no clean result without a completed scan). Files: `src/scan/status.ts`, additive types in `src/types/index.ts`. Consumes: R4. Produces: `ScannerStatusEntry`, `computeOutcome`.
-- [ ] T008 [P] Write failing unit tests for redaction using the demo secret shapes [TS-027, TS-028] in `tests/unit/evidence/redact.test.ts`
+- [x] T008 [P] Write failing unit tests for redaction using the demo secret shapes [TS-027, TS-028] in `tests/unit/evidence/redact.test.ts`
   - Tier B. Produces: red tests for FR-012.
-- [ ] T009 Implement `src/evidence/redact.ts` (do not store, allow-listed fields per tool, pattern backstop) to pass [TS-027, TS-028]
+- [x] T009 Implement `src/evidence/redact.ts` (do not store, allow-listed fields per tool, pattern backstop) to pass [TS-027, TS-028]
   - Tier C (security: no secret reaches evidence, history or logs). Files: `src/evidence/redact.ts`. Consumes: R11, R12.
 - [ ] T010 [P] Write failing unit tests for the evidence store and hashing [TS-013, TS-015, TS-017, TS-018, TS-019] in `tests/unit/evidence/store.test.ts` (tmp root)
   - Tier B. Produces: red tests for FR-005, FR-006, FR-011, FR-015.
