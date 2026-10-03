@@ -1,8 +1,8 @@
 # Tessera
 
-> Enterprise-grade application security audit framework powered by Temporal.io
+> Application security audit framework powered by Temporal.io, built toward enterprise assurance (currently level 1 of 4)
 
-**Version:** 1.0.0
+**Version:** 0.2.0
 **Status:** not production ready. The scan core (feature 004) reaches assurance level 1; see `docs/assurance-roadmap.md` and `docs/review-report.md` for what is still open
 **Last Updated:** 2026-10-03
 

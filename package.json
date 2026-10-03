@@ -1,6 +1,6 @@
 {
   "name": "tessera",
-  "version": "1.0.0",
+  "version": "0.2.0",
   "description": "Enterprise-grade security audit workflow engine powered by Temporal.io",
   "main": "lib/workflows/index.js",
   "types": "lib/workflows/index.d.ts",

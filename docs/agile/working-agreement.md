@@ -55,6 +55,14 @@ A phase is an IIKit phase (spec, plan, tests, tasks, implementation) or a delive
 4. **Long-term goal check**: re-read the product goal and levels in `docs/assurance-roadmap.md`; note whether the phase moved a
    level criterion and update the roadmap in the same commit.
 
+## Tier C files and the security gate
+
+Tier C (never delegated blind, diff read in full, mutation loop required, second opinion by another model family):
+`src/scan/run-tool.ts`, `process-runner.ts`, `env.ts`, `status.ts`, `lifecycle.ts`, `source-probe.ts`, `safe-walk.ts`,
+`src/evidence/*`, `src/workflows/index.ts`, `src/scan/activities.ts`, `src/report/outcome-block.ts`, `src/cli/verify-evidence.ts`.
+A feature that adds or changes process execution, the network boundary or anything under `src/scan/` or `src/evidence/` has a
+security review checkpoint in its tasks, executed before the feature counts as done.
+
 ## Stop the line
 
 A red pipeline on `main` stops all new work until it is green again. Security fixes from the review (class of service

@@ -46,7 +46,7 @@ Elk item wordt een IIKit-feature wanneer het aan de beurt is. `Bron` verwijst na
 | 009 | Testbetrouwbaarheid: hermetische tests, BDD actief in CI, `.spec.md`-formaat en assertion-hashes | 2 | #11, #12, #14, #26, #28 | n.v.t. | niet gestart |
 | 010 | Bewijsopslag: WORM, bewaarbeleid, back-up | 2 | 004 FR-011 (deels) | 004 | niet gestart |
 | 011 | Goedkeuring: reject-signaal, vastgelegde besluiten, `skipApproval` zichtbaar | 2 | #15 | 004 | niet gestart |
-| 012 | Domeinen aansluiten (privacy, documentatie, CI, reliability, SQL-injectie D08) met recall per domein; migreer de 23 legacy `execAsync`-aanroepen naar `runTool` (004 T042 tot T044) en verwijder `npx eslint` in de doelrepo (`checkCodeQuality`) | 2 | #9, D08, D12–D17 | 005 | niet gestart |
+| 012 | Domeinen aansluiten (privacy, documentatie, CI, reliability, SQL-injectie D08) met recall per domein; migreer de 23 legacy `execAsync`-aanroepen naar `runTool` (004 T042 tot T044) verwijder `npx eslint` in de doelrepo (`checkCodeQuality`), registreer legacy-activities niet meer bij de worker en vervang de zwakke `toBeDefined`-assertions in de legacy-tests | 2 | #9, D08, D12–D17 | 005 | niet gestart |
 | 013 | Evidence Attestation: externe sleutelbewaring, RFC 3161, verankering, scanner-attestatie, rolscheiding | 3 | 004 R19, review §7 | 004, 010 | niet gestart |
 | 014 | Reproduceerbare tweede run en vergelijking | 3 | review §7 | 013 | niet gestart |
 | 015 | Compliance-mapping echt (ISO 27001, SOC 2, ASVS) | 4 | #19 | 012 | niet gestart |
