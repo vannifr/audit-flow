@@ -151,7 +151,7 @@ async function main() {
 
   log('worker starten (taskqueue audit)');
   const workerLog = path.join(workDir, 'worker.log');
-  start('npx', ['ts-node', 'src/worker.ts'], { cwd: ROOT, env: { ...process.env, ...gitEnv, TEMPORAL_ADDRESS: `localhost:${TEMPORAL_PORT}` } }, workerLog);
+  start('npx', ['ts-node', 'src/worker.ts'], { cwd: ROOT, env: { ...process.env, ...gitEnv, TEMPORAL_ADDRESS: `localhost:${TEMPORAL_PORT}`, TESSERA_EVIDENCE_ROOT: path.join(workDir, 'evidence') } }, workerLog);
   await waitFor(() => fs.existsSync(workerLog) && /Worker configured/.test(fs.readFileSync(workerLog, 'utf-8')), 90000, 'worker');
 
   const connection = await Connection.connect({ address: `localhost:${TEMPORAL_PORT}` });
